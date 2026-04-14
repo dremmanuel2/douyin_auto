@@ -1,0 +1,10 @@
+{
+    "interval": 1.0,
+    "repeat": 1,
+    "window": {
+        "width": 1080,
+        "height": 900,
+        "x": 0,
+        "y": 0
+    }
+}
