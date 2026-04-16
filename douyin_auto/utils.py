@@ -11,17 +11,24 @@ def FindWindow(class_name=None, window_name=None):
     Find a window by class name and/or window name.
     Returns window handle (hwnd) or 0 if not found.
     """
-    hwnd = win32gui.FindWindow(class_name, window_name)
-    if hwnd:
-        return hwnd
+    if isinstance(window_name, str):
+        window_names = [window_name]
+    else:
+        window_names = window_name or []
 
-    # Try partial match
-    if window_name:
+    for name in window_names:
+        hwnd = win32gui.FindWindow(class_name, name)
+        if hwnd:
+            return hwnd
+
+    for name in window_names:
+
         def enum_callback(h, l):
             if win32gui.IsWindowVisible(h):
                 t = win32gui.GetWindowText(h)
-                if t and (window_name in t or t in window_name):
+                if t and (name in t or t in name):
                     l.append(h)
+
         windows = []
         win32gui.EnumWindows(enum_callback, windows)
         if windows:
@@ -38,10 +45,17 @@ def SetForegroundWindow(hwnd):
             pass
         try:
             # SetWindowPos doesn't have the foreground restriction that SetForegroundWindow has
-            win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, 0, 0, 0, 0,
-                                  win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_SHOWWINDOW)
+            win32gui.SetWindowPos(
+                hwnd,
+                win32con.HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_SHOWWINDOW,
+            )
         except Exception as e:
-            print(f'SetWindowPos warning: {e}')
+            print("SetWindowPos warning: %s" % e)
 
 
 def GetWindowRect(hwnd):
@@ -112,9 +126,9 @@ def SendKeys(keys, hwnd=None):
         SetClipboardText(keys)
         # Ctrl+V to paste
         win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
-        win32api.keybd_event(ord('V'), 0, 0, 0)
+        win32api.keybd_event(ord("V"), 0, 0, 0)
         time.sleep(0.05)
-        win32api.keybd_event(ord('V'), 0, win32con.KEYEVENTF_KEYUP, 0)
+        win32api.keybd_event(ord("V"), 0, win32con.KEYEVENTF_KEYUP, 0)
         win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
     elif isinstance(keys, list):
         for key in keys:
@@ -137,7 +151,7 @@ def GetClipboardText():
     try:
         return win32clipboard.GetClipboardData(win32clipboard.CF_UNICODETEXT)
     except:
-        return ''
+        return ""
     finally:
         win32clipboard.CloseClipboard()
 
@@ -159,6 +173,7 @@ def ScrollUp(hwnd=None, amount=3):
 # Key codes for Douyin
 class Keys:
     """Virtual key codes"""
+
     UP = 0x26  # Up arrow
     DOWN = 0x28  # Down arrow
     LEFT = 0x25  # Left arrow

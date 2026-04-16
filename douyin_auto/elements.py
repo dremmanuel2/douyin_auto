@@ -1,4 +1,14 @@
 # Element classes for douyin-auto
+import numpy as np
+import cv2
+
+
+# 私信入口类型枚举
+class MessageEntryType:
+    """私信入口类型"""
+
+    SEARCH_RESULT = "search_result"  # 通过搜索用户进入用户界面的私信按钮
+    TOP_SCREEN = "top_screen"  # 程序屏幕上方的私信入口
 
 
 class DouyinBase:
@@ -12,6 +22,45 @@ class DouyinBase:
         """Window handle"""
         return self._hwnd
 
+    def capture_region(self, rel_x, rel_y, rel_w, rel_h):
+        """
+        截取窗口指定区域
+
+        Args:
+            rel_x, rel_y: 相对坐标 (0-1)
+            rel_w, rel_h: 相对宽高 (0-1)
+
+        Returns:
+            numpy.ndarray: BGR格式图像
+        """
+        import win32gui
+        from PIL import Image, ImageGrab
+
+        if not self._hwnd:
+            return None
+
+        left, top, right, bottom = win32gui.GetWindowRect(self._hwnd)
+        width = right - left
+        height = bottom - top
+
+        screen_left = int(left + rel_x * width)
+        screen_top = int(top + rel_y * height)
+        screen_right = int(left + (rel_x + rel_w) * width)
+        screen_bottom = int(top + (rel_y + rel_h) * height)
+
+        img = ImageGrab.grab((screen_left, screen_top, screen_right, screen_bottom))
+        img_np = np.array(img)
+
+        if len(img_np.shape) == 3 and img_np.shape[2] == 4:
+            img_np = img_np[:, :, :3]
+
+        try:
+            import cv2
+
+            return cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+        except:
+            return img_np
+
 
 class VideoElement(DouyinBase):
     """
@@ -20,18 +69,18 @@ class VideoElement(DouyinBase):
 
     def __init__(self, hwnd=None):
         super().__init__(hwnd)
-        self._title = ''
-        self._author = ''
-        self._author_id = ''
+        self._title = ""
+        self._author = ""
+        self._author_id = ""
         self._likes = 0
         self._comments = 0
         self._shares = 0
         self._duration = 0
-        self._description = ''
-        self._url = ''
+        self._description = ""
+        self._url = ""
 
     def __repr__(self):
-        return f'<VideoElement: {self.title} by {self.author}>'
+        return "<VideoElement: %s by %s>" % (self.title, self.author)
 
     @property
     def title(self):
@@ -122,18 +171,18 @@ class CommentElement(DouyinBase):
 
     def __init__(self, hwnd=None):
         super().__init__(hwnd)
-        self._id = ''
-        self._user = ''
-        self._user_id = ''
-        self._content = ''
+        self._id = ""
+        self._user = ""
+        self._user_id = ""
+        self._content = ""
         self._likes = 0
         self._replies = 0
-        self._time = ''
+        self._time = ""
         self._is_reply = False
         self._parent_id = None
 
     def __repr__(self):
-        return f'<CommentElement: {self.user}: {self.content[:30]}>'
+        return "<CommentElement: %s: %s>" % (self.user, self.content[:30])
 
     @property
     def id(self):
@@ -224,17 +273,17 @@ class UserElement(DouyinBase):
 
     def __init__(self, hwnd=None):
         super().__init__(hwnd)
-        self._id = ''
-        self._nickname = ''
-        self._signature = ''
+        self._id = ""
+        self._nickname = ""
+        self._signature = ""
         self._followers = 0
         self._following = 0
         self._likes = 0
         self._verified = False
-        self._avatar_url = ''
+        self._avatar_url = ""
 
     def __repr__(self):
-        return f'<UserElement: {self.nickname}>'
+        return "<UserElement: %s>" % self.nickname
 
     @property
     def id(self):
@@ -316,17 +365,17 @@ class MessageElement(DouyinBase):
 
     def __init__(self, hwnd=None):
         super().__init__(hwnd)
-        self._id = ''
-        self._sender = ''
-        self._receiver = ''
-        self._content = ''
-        self._time = ''
+        self._id = ""
+        self._sender = ""
+        self._receiver = ""
+        self._content = ""
+        self._time = ""
         self._is_self = False
         self._read = False
 
     def __repr__(self):
-        sender = 'Me' if self.is_self else self.sender
-        return f'<MessageElement: {sender}: {self.content[:30]}>'
+        sender = "Me" if self.is_self else self.sender
+        return "<MessageElement: %s: %s>" % (sender, self.content[:30])
 
     @property
     def id(self):
@@ -399,15 +448,15 @@ class SessionElement(DouyinBase):
 
     def __init__(self, hwnd=None):
         super().__init__(hwnd)
-        self._id = ''
-        self._name = ''
-        self._last_message = ''
-        self._last_time = ''
+        self._id = ""
+        self._name = ""
+        self._last_message = ""
+        self._last_time = ""
         self._unread = 0
-        self._avatar = ''
+        self._avatar = ""
 
     def __repr__(self):
-        return f'<SessionElement: {self.name}>'
+        return "<SessionElement: %s>" % self.name
 
     @property
     def id(self):

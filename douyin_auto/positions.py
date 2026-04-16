@@ -1,13 +1,24 @@
-# 抖音按钮位置配置文件（由校准工具自动生成）
-# 窗口大小: 800x900
+# 抖音按钮位置配置（从 positions.txt 自动加载）
+import os
 
-POSITIONS = {
-    '点击搜索框': (0.3519, 0.0278),
-    '点击搜索': (0.5037, 0.0267),
-    '点击用户头像': (0.0935, 0.2411),
-    '点击头像里面的关注': (0.8333, 0.1889),
-    '点击头像里面的私信': (0.9287, 0.1900),
-    '点击发送消息框': (0.7083, 0.7167),
-    '点击发送消息': (0.9361, 0.7122),
-    '点击屏幕上方的私信': (0.7324, 0.0278),
-}
+POSITIONS = {}
+
+_positions_txt = os.path.join(os.path.dirname(__file__), "positions.txt")
+if os.path.exists(_positions_txt):
+    with open(_positions_txt, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line and ":" in line and not line.startswith("#"):
+                key, value = line.split(":", 1)
+                key = key.strip()
+                value = value.strip()
+                if value.startswith("(") and value.endswith(")"):
+                    value = value[1:-1]
+                    parts = value.split(",")
+                    if len(parts) == 2:
+                        try:
+                            x = float(parts[0].strip())
+                            y = float(parts[1].strip())
+                            POSITIONS[key] = (x, y)
+                        except ValueError:
+                            pass

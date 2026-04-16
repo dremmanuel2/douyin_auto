@@ -1,17 +1,43 @@
 # Main Douyin automation class
 import sys
 import time
+import os
+import numpy as np
 import win32gui
 import win32con
+import cv2
 from .utils import (
-    FindWindow, SetForegroundWindow, GetWindowRect, GetWindowSize,
-    Click, DoubleClick, RightClick, SendKey, SendKeys, ScrollDown, ScrollUp,
-    SetClipboardText, GetClipboardText, Keys
+    FindWindow,
+    SetForegroundWindow,
+    GetWindowRect,
+    GetWindowSize,
+    Click,
+    DoubleClick,
+    RightClick,
+    SendKey,
+    SendKeys,
+    ScrollDown,
+    ScrollUp,
+    SetClipboardText,
+    GetClipboardText,
+    Keys,
 )
 from .elements import (
-    VideoElement, CommentElement, UserElement, MessageElement, SessionElement
+    VideoElement,
+    CommentElement,
+    UserElement,
+    MessageElement,
+    SessionElement,
 )
 from .errors import WindowNotFoundError, OperationFailedError
+from .vision import (
+    SmartLocator,
+    compute_image_hash,
+    compare_images,
+    detect_message_area,
+    find_element_by_template,
+    detect_red_badge,
+)
 
 # 导入用户校准的位置配置
 try:
@@ -34,8 +60,16 @@ class Douyin:
     """
 
     # Window class name for Douyin
-    WINDOW_CLASS_NAME = 'Chrome_WidgetWin_1'
-    WINDOW_TITLE = '抖音'
+    WINDOW_CLASS_NAME = "Chrome_WidgetWin_1"
+    WINDOW_TITLE = "抖音"
+
+    # 支持的浏览器类名
+    BROWSER_CLASSES = [
+        "Chrome_WidgetWin_1",
+        "Chrome_WidgetWin_0",
+        "MSEdge_WidgetWin_0",
+        "MSEdge_WidgetWin_1",
+    ]
 
     # 标准窗口尺寸
     DEFAULT_WIDTH = 1080
@@ -51,13 +85,22 @@ class Douyin:
         self._hwnd = hwnd
         self._window_width = 0
         self._window_height = 0
-        self._nickname = ''
+        self._nickname = ""
+
+        self._smart_locator = None
+        self._last_screenshot = None
+        self._last_screenshot_hash = ""
+        self._last_message_area_hash = ""
+        self._listening = False
+        self._message_callbacks = []
 
         if not self._hwnd:
             self._hwnd = self._find_window()
 
         if self._hwnd:
             self._update_window_size()
+            self._smart_locator = SmartLocator(self._hwnd)
+            self._capture_baseline()
             # First show the window (restore if minimized)
             win32gui.ShowWindow(self._hwnd, win32con.SW_RESTORE)
             time.sleep(0.1)
@@ -65,16 +108,23 @@ class Douyin:
             try:
                 SetForegroundWindow(self._hwnd)
             except Exception as e:
-                print(f'Warning: SetForegroundWindow failed: {e}')
+                print("Warning: SetForegroundWindow failed: {}".format(e))
                 # Try alternative method
                 try:
-                    win32gui.SetWindowPos(self._hwnd, win32con.HWND_TOP, 0, 0, 0, 0,
-                                          win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+                    win32gui.SetWindowPos(
+                        self._hwnd,
+                        win32con.HWND_TOP,
+                        0,
+                        0,
+                        0,
+                        0,
+                        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE,
+                    )
                 except:
                     pass
             time.sleep(0.2)
         else:
-            raise WindowNotFoundError('Douyin window not found')
+            raise WindowNotFoundError("Douyin window not found")
 
     @classmethod
     def open(cls, x=0, y=0, width=None, height=None):
@@ -102,14 +152,21 @@ class Douyin:
         if not hwnd:
             hwnd = FindWindow(None, cls.WINDOW_TITLE)
 
+        # 如果找不到，尝试查找第一个 Chrome_WidgetWin_1 窗口
         if not hwnd:
-            raise WindowNotFoundError('Douyin window not found, please open Douyin first')
+            hwnd = cls._find_first_browser_window()
+
+        if not hwnd:
+            raise WindowNotFoundError(
+                "Douyin window not found, please open Douyin first"
+            )
 
         # 固定窗口大小和位置
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
         time.sleep(0.1)
-        win32gui.SetWindowPos(hwnd, 0, x, y, w, h,
-                              win32con.SWP_NOZORDER | win32con.SWP_SHOWWINDOW)
+        win32gui.SetWindowPos(
+            hwnd, 0, x, y, w, h, win32con.SWP_NOZORDER | win32con.SWP_SHOWWINDOW
+        )
         time.sleep(0.3)
         SetForegroundWindow(hwnd)
         time.sleep(0.2)
@@ -120,16 +177,98 @@ class Douyin:
 
     def _find_window(self):
         """Find Douyin window"""
+        # 1. 尝试通过标题精确匹配
         hwnd = FindWindow(self.WINDOW_CLASS_NAME, self.WINDOW_TITLE)
         if hwnd:
             return hwnd
 
-        # Try partial match
+        # 2. 通过标题模糊匹配
         hwnd = FindWindow(None, self.WINDOW_TITLE)
         if hwnd:
             return hwnd
 
+        # 3. 尝试支持的所有浏览器类名
+        for class_name in self.BROWSER_CLASSES:
+            hwnd = FindWindow(class_name, self.WINDOW_TITLE)
+            if hwnd:
+                return hwnd
+            hwnd = FindWindow(class_name, None)
+            if hwnd:
+                # 检查标题是否包含"抖音"
+                title = win32gui.GetWindowText(hwnd)
+                if title and ("抖音" in title or "douyin" in title.lower()):
+                    return hwnd
+
+        # 4. 通过枚举所有浏览器窗口查找
+        hwnd = self._find_first_browser_window()
+        if hwnd:
+            return hwnd
+
+        # 5. 通过标题包含"抖音"查找
+        def enum_callback(h, data):
+            if win32gui.IsWindowVisible(h):
+                try:
+                    title_text = win32gui.GetWindowText(h)
+                    if title_text and (
+                        "抖音" in title_text or "douyin" in title_text.lower()
+                    ):
+                        data.append((h, title_text))
+                except:
+                    pass
+
+        windows = []
+        win32gui.EnumWindows(enum_callback, windows)
+        if windows:
+            return windows[0][0]
+
         return 0
+
+    @classmethod
+    def _find_first_browser_window(cls):
+        """查找第一个支持的浏览器窗口，优先选择接近默认尺寸的"""
+        result = []
+
+        def enum_callback(h, data):
+            if win32gui.IsWindowVisible(h):
+                classname = win32gui.GetClassName(h)
+                if classname in cls.BROWSER_CLASSES:
+                    title = win32gui.GetWindowText(h)
+                    # 优先选择标题包含"抖音"的窗口
+                    is_douyin = title and ("抖音" in title or "douyin" in title.lower())
+                    rect = win32gui.GetWindowRect(h)
+                    width = rect[2] - rect[0]
+                    height = rect[3] - rect[1]
+                    data.append(
+                        {
+                            "hwnd": h,
+                            "width": width,
+                            "height": height,
+                            "is_douyin": is_douyin,
+                            "title": title,
+                        }
+                    )
+
+        win32gui.EnumWindows(enum_callback, result)
+
+        if not result:
+            return None
+
+        # 优先选择标题包含"抖音"的窗口
+        douyin_windows = [w for w in result if w.get("is_douyin")]
+        if douyin_windows:
+            # 如果有多个抖音窗口，选择接近默认尺寸的
+            target_w, target_h = cls.DEFAULT_WIDTH, cls.DEFAULT_HEIGHT
+            douyin_windows.sort(
+                key=lambda x: abs(x["width"] - target_w) + abs(x["height"] - target_h)
+            )
+            return douyin_windows[0]["hwnd"]
+
+        # 如果没有抖音窗口，选择接近默认尺寸的窗口
+        target_w, target_h = cls.DEFAULT_WIDTH, cls.DEFAULT_HEIGHT
+        result.sort(
+            key=lambda x: abs(x["width"] - target_w) + abs(x["height"] - target_h)
+        )
+        return result[0]["hwnd"]
 
     def _update_window_size(self):
         """Update window dimensions"""
@@ -197,12 +336,17 @@ class Douyin:
         h = height or self.DEFAULT_HEIGHT
         win32gui.ShowWindow(self._hwnd, win32con.SW_RESTORE)
         time.sleep(0.1)
-        win32gui.SetWindowPos(self._hwnd, 0, x, y, w, h,
-                              win32con.SWP_NOZORDER | win32con.SWP_SHOWWINDOW)
+        win32gui.SetWindowPos(
+            self._hwnd, 0, x, y, w, h, win32con.SWP_NOZORDER | win32con.SWP_SHOWWINDOW
+        )
         time.sleep(0.3)
         self._update_window_size()
         SetForegroundWindow(self._hwnd)
-        print(f'窗口已设置为: ({x}, {y}) {self._window_width}x{self._window_height}')
+        print(
+            "窗口已设置为: ({}, {}) {}x{}".format(
+                x, y, self._window_width, self._window_height
+            )
+        )
 
     # ==================== Video Navigation ====================
 
@@ -322,6 +466,7 @@ class Douyin:
         # Ctrl+V to paste
         win32gui.SetForegroundWindow(self._hwnd)
         import win32api
+
         win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
         win32api.keybd_event(0x56, 0, 0, 0)  # V key
         time.sleep(0.05)
@@ -426,8 +571,8 @@ class Douyin:
         self._ensure_foreground()
 
         # 使用校准的位置：点击搜索框
-        if '点击搜索框' in POSITIONS:
-            x, y = POSITIONS['点击搜索框']
+        if "点击搜索框" in POSITIONS:
+            x, y = POSITIONS["点击搜索框"]
             self._click_relative(x, y)
         else:
             # 默认位置
@@ -439,6 +584,7 @@ class Douyin:
         time.sleep(0.1)
 
         import win32api
+
         win32gui.SetForegroundWindow(self._hwnd)
         win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
         win32api.keybd_event(0x56, 0, 0, 0)
@@ -448,8 +594,8 @@ class Douyin:
         time.sleep(0.3)
 
         # 使用校准的位置：点击搜索按钮
-        if '点击搜索' in POSITIONS:
-            x, y = POSITIONS['点击搜索']
+        if "点击搜索" in POSITIONS:
+            x, y = POSITIONS["点击搜索"]
             self._click_relative(x, y)
         else:
             SendKey(Keys.ENTER, self._hwnd)
@@ -459,18 +605,44 @@ class Douyin:
 
     def OpenMessages(self):
         """
-        Open private messages.
+        Open private messages through the top screen entry.
         """
         self._ensure_foreground()
-        # Click on message icon (usually top right area)
-        self._click_relative(0.95, 0.05)
+        # 使用positions.txt中定义的屏幕上方私信入口位置
+        if "屏幕上方的私信入口" in POSITIONS:
+            x, y = POSITIONS["屏幕上方的私信入口"]
+            self._click_relative(x, y)
+        else:
+            # 默认位置 (top right area)
+            self._click_relative(0.95, 0.05)
         time.sleep(0.5)
+
+    def OpenMessagesViaSearch(self, user_id):
+        """
+        Open private messages through the search result entry.
+
+        Args:
+            user_id: User ID to search for
+        """
+        self._ensure_foreground()
+
+        # 1. 搜索用户
+        self.Search(user_id)
+        time.sleep(1.0)
+
+        # 2. 点击用户头像
+        self.ClickUserAvatar()
+        time.sleep(1.0)
+
+        # 3. 点击私信按钮
+        self.ClickPrivateMessage()
+        time.sleep(1.0)
 
     def ClickUserAvatar(self):
         """点击搜索结果中的用户头像"""
         self._ensure_foreground()
-        if '点击用户头像' in POSITIONS:
-            x, y = POSITIONS['点击用户头像']
+        if "点击用户头像" in POSITIONS:
+            x, y = POSITIONS["点击用户头像"]
             self._click_relative(x, y)
         else:
             self._click_relative(0.50, 0.25)
@@ -479,8 +651,8 @@ class Douyin:
     def ClickFollowInProfile(self):
         """点击个人资料页中的关注按钮"""
         self._ensure_foreground()
-        if '点击头像内部的关注' in POSITIONS:
-            x, y = POSITIONS['点击头像内部的关注']
+        if "点击头像内部的关注" in POSITIONS:
+            x, y = POSITIONS["点击头像内部的关注"]
             self._click_relative(x, y)
         else:
             self._click_relative(0.50, 0.25)
@@ -489,8 +661,8 @@ class Douyin:
     def ClickPrivateMessage(self):
         """点击个人资料页中的私信按钮"""
         self._ensure_foreground()
-        if '点击私信' in POSITIONS:
-            x, y = POSITIONS['点击私信']
+        if "点击私信" in POSITIONS:
+            x, y = POSITIONS["点击私信"]
             self._click_relative(x, y)
         else:
             self._click_relative(0.50, 0.25)
@@ -499,8 +671,8 @@ class Douyin:
     def ClickMessageInput(self):
         """点击发送消息框"""
         self._ensure_foreground()
-        if '点击发送消息框' in POSITIONS:
-            x, y = POSITIONS['点击发送消息框']
+        if "点击发送消息框" in POSITIONS:
+            x, y = POSITIONS["点击发送消息框"]
             self._click_relative(x, y)
         else:
             self._click_relative(0.50, 0.85)
@@ -518,7 +690,7 @@ class Douyin:
         self._ensure_foreground()
 
         # 1. 搜索用户
-        print(f"正在搜索用户: {user}")
+        print("正在搜索用户: {}".format(user))
         self.Search(user)
         time.sleep(1.0)
 
@@ -544,12 +716,13 @@ class Douyin:
         time.sleep(0.5)
 
         # 6. 输入消息内容
-        print(f"正在输入消息: {text}")
+        print("正在输入消息: {}".format(text))
         SetClipboardText(text)
         time.sleep(0.2)
 
         win32gui.SetForegroundWindow(self._hwnd)
         import win32api
+
         win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
         win32api.keybd_event(0x56, 0, 0, 0)
         time.sleep(0.1)
@@ -562,7 +735,7 @@ class Douyin:
         SendKey(Keys.ENTER, self._hwnd)
         time.sleep(0.5)
 
-        print(f"消息发送完成！")
+        print("消息发送完成！")
 
     # ==================== Screenshot ====================
 
@@ -574,32 +747,30 @@ class Douyin:
             filepath: Output file path. If None, saves to desktop.
         """
         import os
-        if not filepath:
-            filepath = os.path.join(os.path.expanduser('~'), 'Desktop', 'douyin_screenshot.png')
+        from PIL import Image
 
         left, top, right, bottom = GetWindowRect(self._hwnd)
         width = right - left
         height = bottom - top
 
+        # 使用PIL截图（更稳定）
         import win32gui
-        import win32ui
-        hwndDC = win32gui.GetWindowDC(self._hwnd)
-        mfcDC = win32ui.CreateDCFromHandle(hwndDC)
-        saveDC = mfcDC.CreateCompatibleDC()
+        from PIL import ImageGrab
 
-        bitmap = win32ui.CreateBitmap()
-        bitmap.CreateCompatibleBitmap(mfcDC, width, height)
-        saveDC.SelectObject(bitmap)
-        saveDC.BitBlt((0, 0), (width, height), mfcDC, (0, 0), win32con.SRCCOPY)
+        bbox = (left, top, right, bottom)
+        img = ImageGrab.grab(bbox=bbox)
 
-        bitmap.SaveBitmapFile(saveDC, filepath)
+        if filepath:
+            img.save(filepath)
+            return filepath
+        else:
+            # 转换为numpy数组返回
+            import numpy as np
 
-        win32gui.DeleteObject(bitmap.GetHandle())
-        saveDC.DeleteDC()
-        mfcDC.DeleteDC()
-        win32gui.ReleaseDC(self._hwnd, hwndDC)
-
-        return filepath
+            img_np = np.array(img)
+            if len(img_np.shape) == 3 and img_np.shape[2] == 4:
+                img_np = img_np[:, :, :3]
+            return img_np
 
     # ==================== Utilities ====================
 
@@ -651,5 +822,428 @@ class Douyin:
         self._ensure_foreground()
         SendKey(key_code, self._hwnd)
 
+    # ==================== 消息监听功能 ====================
+
+    def _capture_baseline(self):
+        """捕获基线截图用于消息变化检测"""
+        self._last_screenshot = self.TakeScreenshot()
+        if self._last_screenshot is not None and hasattr(
+            self._last_screenshot, "shape"
+        ):
+            self._last_screenshot_hash = compute_image_hash(self._last_screenshot)
+            msg_area = detect_message_area(self._last_screenshot, "left")
+            self._last_message_area_hash = compute_image_hash(msg_area)
+
+    def _capture_current_screenshot(self):
+        """捕获当前截图"""
+        screenshot = self.TakeScreenshot()
+        if screenshot is not None and hasattr(screenshot, "shape"):
+            return screenshot
+        return None
+
+    def _get_message_area_image(self):
+        """获取消息区域图像"""
+        current = self._capture_current_screenshot()
+        if current is None or not hasattr(current, "shape"):
+            return None
+        return detect_message_area(current, "left")
+
+    def CheckNewMessage(self):
+        """
+        检查是否有新消息（通过截图差异检测）
+
+        Returns:
+            has_new: bool - 是否有新消息
+            diff_info: dict - 差异信息
+        """
+        self._ensure_foreground()
+        time.sleep(0.1)
+
+        current = self._capture_current_screenshot()
+        if current is None:
+            return False, {}
+
+        current_hash = compute_image_hash(current)
+        if current_hash != self._last_screenshot_hash:
+            self._last_screenshot = current
+            self._last_screenshot_hash = current_hash
+
+            current_msg_area = detect_message_area(current, "left")
+            current_msg_hash = compute_image_hash(current_msg_area)
+
+            if current_msg_hash != self._last_message_area_hash:
+                self._last_message_area_hash = current_msg_hash
+                return True, {"type": "message_area_change"}
+
+            return True, {"type": "screen_change"}
+
+        return False, {}
+
+    def CheckNewMessageByRedDot(self):
+        """
+        通过红点检测是否有新消息（检查消息图标区域）
+
+        Returns:
+            has_new: bool - 是否有新消息（红点）
+        """
+        self._ensure_foreground()
+        time.sleep(0.1)
+
+        left, top, right, bottom = GetWindowRect(self._hwnd)
+        width = right - left
+        height = bottom - top
+
+        from PIL import Image, ImageGrab
+
+        msg_icon_area = (
+            left + int(width * 0.92),
+            top + int(height * 0.02),
+            left + int(width * 0.98),
+            top + int(height * 0.08),
+        )
+        img = ImageGrab.grab(bbox=msg_icon_area)
+        img_np = np.array(img)
+
+        if img_np.size == 0:
+            return False
+
+        if len(img_np.shape) == 3 and img_np.shape[2] == 4:
+            img_np = img_np[:, :, :3]
+
+        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+
+        has_badge, _, _ = detect_red_badge(img_bgr, min_area=30)
+        return has_badge
+
+    def StartListening(self, callback=None):
+        """
+        开始监听新消息
+
+        Args:
+            callback: 新消息回调函数，签名为 callback(has_new, diff_info)
+        """
+        self._listening = True
+        if callback:
+            self._message_callbacks.append(callback)
+        self._capture_baseline()
+
+    def StopListening(self):
+        """停止监听新消息"""
+        self._listening = False
+
+    def GetNewMessage(self, timeout=10, check_interval=1.0):
+        """
+        等待并获取新消息
+
+        Args:
+            timeout: 超时时间（秒）
+            check_interval: 检查间隔（秒）
+
+        Returns:
+            has_new: bool - 是否有新消息
+            diff_info: dict - 差异信息
+        """
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            has_new, diff_info = self.CheckNewMessage()
+            if has_new:
+                for cb in self._message_callbacks:
+                    try:
+                        cb(has_new, diff_info)
+                    except:
+                        pass
+                return has_new, diff_info
+            time.sleep(check_interval)
+
+        return False, {"type": "timeout"}
+
+    def OnNewMessage(self, callback):
+        """
+        注册新消息回调
+
+        Args:
+            callback: 回调函数
+        """
+        if callback not in self._message_callbacks:
+            self._message_callbacks.append(callback)
+
+    # ==================== 私信消息处理 ====================
+
+    def GetPrivateMessages(self, count=50):
+        """
+        获取当前会话的私信消息
+
+        流程：
+        1. 截图
+        2. 检测消息框位置
+        3. OCR提取消息文字
+        4. 返回消息列表
+
+        Args:
+            count: 最大返回消息数量
+
+        Returns:
+            list: MessageElement列表
+        """
+        from .vision import detect_message_box, extract_messages_from_box
+
+        self._ensure_foreground()
+        time.sleep(0.1)
+
+        screenshot = self.TakeScreenshot()
+        if screenshot is None:
+            return []
+
+        box_info = detect_message_box(screenshot)
+        box = box_info["box"]
+
+        raw_messages = extract_messages_from_box(screenshot, box)
+
+        messages = []
+        for i, msg in enumerate(raw_messages[:count]):
+            elem = MessageElement(self._hwnd)
+            elem.content = msg["text"]
+            elem.is_self = msg["is_self"]
+            elem.id = str(i)
+            messages.append(elem)
+
+        return messages
+
+    def GetPrivateMessagesByPosition(self, count=50):
+        """
+        使用已知位置获取私信消息（基于positions.txt）
+
+        Args:
+            count: 最大返回消息数量
+
+        Returns:
+            list: MessageElement列表
+        """
+        from .vision import extract_messages_from_box, get_message_box_by_position
+
+        self._ensure_foreground()
+        time.sleep(0.1)
+
+        screenshot = self.TakeScreenshot()
+        if screenshot is None:
+            return []
+
+        box = get_message_box_by_position()
+        raw_messages = extract_messages_from_box(screenshot, box)
+
+        messages = []
+        for i, msg in enumerate(raw_messages[:count]):
+            elem = MessageElement(self._hwnd)
+            elem.content = msg["text"]
+            elem.is_self = msg["is_self"]
+            elem.id = str(i)
+            messages.append(elem)
+
+        return messages
+
+    def GetSessionList(self):
+        """
+        获取私信会话列表
+
+        返回结构：
+        [
+            {"name": "用户名", "unread": True/False, "last_msg": "最后消息", "rel_y": 0.1},
+            ...
+        ]
+
+        Returns:
+            list: 会话列表
+        """
+        from .vision import detect_red_badge
+
+        self._ensure_foreground()
+        time.sleep(0.1)
+
+        left, top, right, bottom = GetWindowRect(self._hwnd)
+        width = right - left
+        height = bottom - top
+
+        from PIL import Image, ImageGrab
+
+        session_list_area = (
+            left + int(width * 0.01),
+            top + int(height * 0.08),
+            left + int(width * 0.35),
+            top + int(height * 0.85),
+        )
+
+        img = ImageGrab.grab(bbox=session_list_area)
+        img_np = np.array(img)
+
+        if img_np.size == 0:
+            return []
+
+        if len(img_np.shape) == 3 and img_np.shape[2] == 4:
+            img_np = img_np[:, :, :3]
+
+        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+
+        has_badge, _, _ = detect_red_badge(img_bgr, min_area=20)
+
+        sessions = []
+        if has_badge:
+            sessions.append(
+                {"name": "有新消息", "unread": True, "last_msg": "", "rel_y": 0.1}
+            )
+
+        return sessions
+
+    def ClickSession(self, rel_y):
+        """
+        点击会话列表中的指定会话
+
+        Args:
+            rel_y: 相对Y坐标 (0-1)
+        """
+        self._ensure_foreground()
+
+        left, top, right, bottom = GetWindowRect(self._hwnd)
+        width = right - left
+        height = bottom - top
+
+        x = int(left + width * 0.17)
+        y = int(top + rel_y * height)
+
+        Click(x, y)
+        time.sleep(0.5)
+
+    def OpenMessageSession(self, session_name):
+        """
+        打开指定会话
+
+        Args:
+            session_name: 会话名称/用户名
+        """
+        self._ensure_foreground()
+        self.OpenMessages()
+        time.sleep(0.5)
+
+        sessions = self.GetSessionList()
+        for i, session in enumerate(sessions):
+            if session_name in session.get("name", ""):
+                self.ClickSession(session["rel_y"])
+                time.sleep(0.5)
+                return True
+
+        return False
+
+    def GetAllNewMessage(self, max_count=10):
+        """
+        获取所有未读私信消息（参考wxauto的GetAllNewMessage）
+
+        流程：
+        1. 检查消息图标红点
+        2. 进入私信列表
+        3. 遍历未读会话获取消息
+        4. 返回所有消息
+
+        Args:
+            max_count: 每个会话最多返回消息数
+
+        Returns:
+            dict: {username: [MessageElement列表], ...}
+        """
+        if not self.CheckNewMessageByRedDot():
+            return {}
+
+        self.OpenMessages()
+        time.sleep(0.8)
+
+        sessions = self.GetSessionList()
+
+        all_messages = {}
+        for session in sessions:
+            if session.get("unread", False):
+                username = session.get("name", "未知用户")
+                self.ClickSession(session.get("rel_y", 0.1))
+                time.sleep(0.5)
+
+                messages = self.GetPrivateMessages(max_count)
+                if messages:
+                    all_messages[username] = messages
+
+        return all_messages
+
+    def SmartClick(self, element_name, retry=2):
+        """
+        使用智能定位点击元素（模板匹配 -> 颜色检测 -> 相对坐标fallback）
+
+        Args:
+            element_name: 元素名称（如 "like", "comment", "share"）
+            retry: 重试次数
+
+        Returns:
+            success: bool
+        """
+        from .vision import SmartLocator
+
+        if not self._smart_locator:
+            self._smart_locator = SmartLocator(self._hwnd)
+
+        element_map = {
+            "like": ("like_button", (0.9437, 0.4781)),
+            "comment": ("comment_button", (0.94, 0.52)),
+            "share": ("share_button", (0.94, 0.78)),
+            "collect": ("collect_button", (0.94, 0.65)),
+            "search": ("search_button", (0.36, 0.04)),
+        }
+
+        if element_name not in element_map:
+            element_name_key = element_name
+            fallback_pos = None
+        else:
+            element_name_key, fallback_pos = element_map[element_name]
+
+        for i in range(retry):
+            success, rx, ry, method = self._smart_locator.locate(
+                element_name_key, fallback_pos=fallback_pos
+            )
+            if success:
+                abs_x = self._get_absolute_x(rx)
+                abs_y = self._get_absolute_y(ry)
+                Click(abs_x, abs_y)
+                time.sleep(0.2)
+                return True
+            time.sleep(0.3)
+        return False
+
+    def LocateElement(self, element_name):
+        """
+        定位元素位置
+
+        Args:
+            element_name: 元素名称
+
+        Returns:
+            success: bool
+            rel_x, rel_y: 相对坐标
+            method: str - 使用的定位方法
+        """
+        from .vision import SmartLocator
+
+        if not self._smart_locator:
+            self._smart_locator = SmartLocator(self._hwnd)
+
+        element_map = {
+            "like": ("like_button", (0.9437, 0.4781)),
+            "comment": ("comment_button", (0.94, 0.52)),
+            "share": ("share_button", (0.94, 0.78)),
+            "collect": ("collect_button", (0.94, 0.65)),
+            "search": ("search_button", (0.36, 0.04)),
+        }
+
+        if element_name not in element_map:
+            element_name_key = element_name
+            fallback_pos = None
+        else:
+            element_name_key, fallback_pos = element_map[element_name]
+
+        return self._smart_locator.locate(element_name_key, fallback_pos=fallback_pos)
+
     def __repr__(self):
-        return f'<Douyin: {self.width}x{self.height}>'
+        return "<Douyin: {}x{}>".format(self.width, self.height)

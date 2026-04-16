@@ -1,0 +1,7 @@
+pywin32
+Pillow
+opencv-python
+numpy
+
+# 可选
+cnocr  # 中文OCR

@@ -1,6 +1,12 @@
 # douyin-auto package
 from .douyin import Douyin
 
-VERSION = '0.1.0'
+# Load positions configuration
+try:
+    from .positions import POSITIONS
+except ImportError:
+    POSITIONS = {}
 
-__all__ = ['Douyin', 'VERSION']
+VERSION = "0.1.0"
+
+__all__ = ["Douyin", "VERSION", "POSITIONS"]

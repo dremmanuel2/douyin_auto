@@ -1,4 +1,5 @@
 """抖音位置校准工具 - 交互式获取准确坐标"""
+
 import win32gui
 import win32api
 import win32con
@@ -10,18 +11,22 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from douyin_auto import Douyin
 
+
 def get_window_info():
     """获取抖音窗口信息"""
-    hwnd = win32gui.FindWindow('Chrome_WidgetWin_1', '抖音')
+    titles = ("抖音", "douyin")
+    hwnd = win32gui.FindWindow("Chrome_WidgetWin_1", titles[0])
     if not hwnd:
-        hwnd = win32gui.FindWindow(None, '抖音')
+        hwnd = win32gui.FindWindow(None, titles[0])
 
     if not hwnd:
+
         def enum_callback(h, l):
             if win32gui.IsWindowVisible(h):
                 t = win32gui.GetWindowText(h)
-                if t and '抖音' in t:
+                if t and any(title in t for title in titles):
                     l.append(h)
+
         windows = []
         win32gui.EnumWindows(enum_callback, windows)
         if windows:
@@ -35,14 +40,18 @@ def get_window_info():
         return hwnd, rect, width, height
     return None, None, None, None
 
+
 def set_window_position(hwnd, x, y, width, height):
     """设置窗口位置和大小"""
-    win32gui.SetWindowPos(hwnd, 0, x, y, width, height,
-                          win32con.SWP_NOZORDER | win32con.SWP_SHOWWINDOW)
+    win32gui.SetWindowPos(
+        hwnd, 0, x, y, width, height, win32con.SWP_NOZORDER | win32con.SWP_SHOWWINDOW
+    )
+
 
 def get_mouse_pos():
     """获取当前鼠标位置"""
     return win32api.GetCursorPos()
+
 
 def main():
     print("=" * 60)
@@ -71,23 +80,25 @@ def main():
     print("=" * 60)
 
     # 加载已有点位，避免覆盖丢失
-    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'douyin_auto', 'positions.py')
+    config_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "douyin_auto", "positions.txt"
+    )
     results = {}
     if os.path.exists(config_path):
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            # 提取已有 POSITIONS
-            import ast
-            start = content.find('POSITIONS = {')
-            if start != -1:
-                snippet = content[start:]
-                end = snippet.find('}') + 1
-                existing = ast.literal_eval(snippet[:end])
-                results.update(existing)
-                print(f"\n已加载 {len(existing)} 个已有点位:")
-                for n, (rx, ry) in sorted(existing.items()):
-                    print(f"  - {n}: ({rx:.4f}, {ry:.4f})")
+            with open(config_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and ":" in line:
+                        name, coords = line.split(":", 1)
+                        name = name.strip().strip("'\"")
+                        coords = coords.strip().strip("()")
+                        rx, ry = map(float, coords.split(","))
+                        results[name] = (rx, ry)
+                if results:
+                    print(f"\n已加载 {len(results)} 个已有点位:")
+                    for n, (rx, ry) in sorted(results.items()):
+                        print(f"  - {n}: ({rx:.4f}, {ry:.4f})")
         except Exception:
             pass
 
@@ -97,9 +108,11 @@ def main():
         print("\n" + "-" * 40)
 
         # 输入按钮名称（支持中文）
-        name = input("请输入按钮名称 (如: 点赞, 评论按钮, 关注, 或 'done' 结束): ").strip()
+        name = input(
+            "请输入按钮名称 (如: 点赞, 评论按钮, 关注, 或 'done' 结束): "
+        ).strip()
 
-        if name.lower() == 'done':
+        if name.lower() == "done":
             break
 
         if not name:
@@ -143,16 +156,33 @@ def main():
     print("\n" + "=" * 60)
     save = input("是否保存到文件? (y/n): ").strip().lower()
 
-    if save == 'y':
-        # 保存配置文件
-        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'douyin_auto', 'positions.py')
-        with open(config_path, 'w', encoding='utf-8') as f:
+    if save == "y":
+        config_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "douyin_auto", "positions.txt"
+        )
+
+        existing_positions = {}
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith("#") and ":" in line:
+                            name, coords = line.split(":", 1)
+                            name = name.strip().strip("'\"")
+                            coords = coords.strip().strip("()")
+                            rx, ry = map(float, coords.split(","))
+                            existing_positions[name] = (rx, ry)
+            except Exception:
+                pass
+
+        all_positions = {**existing_positions, **results}
+
+        with open(config_path, "w", encoding="utf-8") as f:
             f.write("# 抖音按钮位置配置文件（由校准工具自动生成）\n")
             f.write("# 窗口大小: 800x900\n\n")
-            f.write("POSITIONS = {\n")
-            for name, (rx, ry) in results.items():
-                f.write(f"    '{name}': ({rx:.4f}, {ry:.4f}),\n")
-            f.write("}\n")
+            for name, (rx, ry) in all_positions.items():
+                f.write(f"{name}: ({rx:.4f}, {ry:.4f})\n")
         print(f"配置已保存到: {config_path}")
 
         # 生成 Python 代码片段，方便复制使用
@@ -166,40 +196,47 @@ def main():
             print(f"# dy.Click(POSITIONS['{name}'][0], POSITIONS['{name}'][1])")
 
         print("\n" + "=" * 60)
-        update = input("是否用这些坐标更新 douyin.py 中的硬编码位置? (y/n): ").strip().lower()
+        update = (
+            input("是否用这些坐标更新 douyin.py 中的硬编码位置? (y/n): ")
+            .strip()
+            .lower()
+        )
 
-        if update == 'y':
+        if update == "y":
             # 读取当前 douyin.py
-            douyin_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'douyin_auto', 'douyin.py')
-            with open(douyin_path, 'r', encoding='utf-8') as f:
+            douyin_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), "douyin_auto", "douyin.py"
+            )
+            with open(douyin_path, "r", encoding="utf-8") as f:
                 content = f.read()
 
             # 定义一些常见的替换映射（用户可能定义的名称）
             replacements = {
-                'like_btn': ('_click_relative(0.94, 0.38)', 'Like()'),
-                'comment_btn': ('_click_relative(0.94, 0.52)', 'OpenComments()'),
-                'collect_btn': ('_click_relative(0.94, 0.65)', 'Collect()'),
-                'share_btn': ('_click_relative(0.94, 0.78)', 'Share()'),
-                'comment_input': ('_click_relative(0.50, 0.85)', 'SendComment()'),
-                'author_area': ('_click_relative(0.05, 0.50)', 'Follow()'),
-                'search_btn': ('_click_relative(0.36, 0.04)', 'Search()'),
+                "like_btn": ("_click_relative(0.94, 0.38)", "Like()"),
+                "comment_btn": ("_click_relative(0.94, 0.52)", "OpenComments()"),
+                "collect_btn": ("_click_relative(0.94, 0.65)", "Collect()"),
+                "share_btn": ("_click_relative(0.94, 0.78)", "Share()"),
+                "comment_input": ("_click_relative(0.50, 0.85)", "SendComment()"),
+                "author_area": ("_click_relative(0.05, 0.50)", "Follow()"),
+                "search_btn": ("_click_relative(0.36, 0.04)", "Search()"),
             }
 
             for name, (old_pattern, method_name) in replacements.items():
                 if name in results:
                     rx, ry = results[name]
-                    new_pattern = f'_click_relative({rx:.2f}, {ry:.2f})'
+                    new_pattern = f"_click_relative({rx:.2f}, {ry:.2f})"
                     if old_pattern in content:
                         content = content.replace(old_pattern, new_pattern)
                         print(f"已更新 {method_name}: {old_pattern} -> {new_pattern}")
 
             # 保存更新后的 douyin.py
-            with open(douyin_path, 'w', encoding='utf-8') as f:
+            with open(douyin_path, "w", encoding="utf-8") as f:
                 f.write(content)
             print(f"\ndouyin.py 已更新!")
 
     print("\n校准完成！")
     input("\n按回车键退出...")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
