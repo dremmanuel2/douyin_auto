@@ -1,262 +1,398 @@
-# douyin-auto
+# 抖音私信自动化系统 - 完整使用指南
 
-抖音 PC 客户端自动化控制库 (Douyin PC Automation Library)
+## 🚀 快速开始
 
-### 基于 Python 的抖音自动化控制
+### 1. 上传命令（图形界面）
+```bash
+# 双击运行
+bin\启动上传工具.bat
 
-通过 Python 代码控制 Windows 抖音客户端，实现自动化操作。
+# 或命令行
+python app\upload_command_gui.py
+```
 
-## 环境
+### 2. 自动执行
+```bash
+# 双击运行
+bin\启动自动执行.bat
 
-| 环境 | 版本 |
-| :--: | :--: |
-| OS | Windows 10/11 |
-| Python | >= 3.8 |
-| 抖音 | 抖音精选电脑版 |
+# 或命令行
+python app\auto_executor.py
+```
 
-## 项目结构
+### 3. 测试数据库
+```bash
+python app\test_database.py
+```
+
+---
+
+## 📋 系统功能
+
+### 功能一：数据库消息队列
+- ✅ 图形化上传发送命令
+- ✅ 按时间顺序执行（从早到晚）
+- ✅ 频率控制（30 秒/条）
+- ✅ 每日上限（100 条/天）
+- ✅ 重试机制（最多 3 次）
+- ✅ 完整的日志记录
+
+### 功能二：私信监听回复
+- ✅ 自动检测消息红点
+- ✅ OCR 识别未读消息数量
+- ✅ 点击用户进入聊天
+- ✅ 识别消息内容
+- ✅ 自动回复"你好"
+- ✅ 点击置顶用户返回列表
+
+---
+
+## ⚙️ 系统配置
+
+### 数据库配置
+文件：`douyin_auto/db_config.py`
+
+```python
+MYSQL_DB_CONFIG = {
+    "user": 'root',
+    "password": 'chatbi123',
+    "host": "8.136.195.32",
+    "port": 3306,
+    "db_name": 'DY_database',
+}
+```
+
+### 频率控制
+- 发送间隔：30 秒/条
+- 每日上限：100 条/天
+- 监听间隔：5 秒
+- 重试次数：3 次
+
+### 发送流程时间（已调慢）
+| 步骤 | 等待时间 |
+|------|---------|
+| 点击搜索框 | 2.0 秒 |
+| 清空搜索框 | 0.5 秒 |
+| 输入抖音 ID | 1.0 秒 |
+| 执行搜索 | 3.0 秒 |
+| 点击用户头像 | 2.0 秒 |
+| 点击私信按钮 | 2.0 秒 |
+| 点击消息输入框 | 1.0 秒 |
+| 输入消息内容 | 0.5 秒 |
+| 发送消息 | 1.0 秒 |
+| 点击置顶用户返回 | 1.0 秒 |
+| **总计** | **约 15 秒/条** |
+
+---
+
+## 📁 项目结构
 
 ```
 douyinauto/
-├── douyin_auto/              # 核心库
-│   ├── __init__.py           # 包入口
-│   ├── douyin.py             # 主类 Douyin
-│   ├── elements.py           # 元素类定义
-│   ├── errors.py             # 自定义异常
-│   ├── positions.py          # 校准点位配置
-│   ├── utils.py              # 工具函数
-│   ├── vision.py             # 视觉识别模块
-│   ├── test_basic.py         # 基础测试
-│   └── templates/            # 按钮模板图片
-├── scripts/                   # 脚本工具
-│   ├── calibrate_position.py # 位置校准工具
-│   ├── run_automation.py     # 自动化运行器
-│   ├── send_message.py       # 批量发送私信工具
-│   ├── window_controller.py  # 窗口控制工具
-│   ├── listen_messages.py    # 私信监听工具
-│   ├── test_message_detection.py # 消息检测测试
-│   └── config.json           # 配置文件
-├── screenshots/              # 截图输出目录
-└── README.md
+├── app/                              # 应用程序文件夹
+│   ├── upload_command_gui.py         # 图形化上传工具
+│   ├── auto_executor.py              # 自动化执行程序
+│   ├── test_database.py              # 数据库测试
+│   ├── send_message.py               # 私信发送工具
+│   ├── listen_messages.py            # 消息监听工具
+│   ├── calibrate_position.py         # 点位校准工具
+│   └── README.md                     # app 说明
+│
+├── douyin_auto/                      # 核心库
+│   ├── db_config.py                  # 数据库配置
+│   ├── db_utils.py                   # 数据库工具
+│   ├── douyin.py                     # 抖音自动化
+│   ├── positions.py                  # UI 点位
+│   ├── utils.py                      # 工具函数
+│   └── ...
+│
+├── logs/                             # 日志目录
+│   ├── executor_YYYYMMDD.log         # 执行日志
+│   ├── upload_YYYYMMDD.log           # 上传日志
+│   └── error_YYYYMMDD.log            # 错误日志
+│
+├── bin/                              # 启动脚本文件夹
+│   ├── 启动上传工具.bat              # 快速启动上传
+│   └── 启动自动执行.bat              # 快速启动执行
+├── requirements.txt                  # Python 依赖
+└── README.md                         # 本文档
 ```
 
-## 安装
+---
 
+## 🎯 使用流程
+
+### 完整工作流程
+
+```
+步骤 1: 上传命令
+  └─► 运行"启动上传工具.bat"
+  └─► 输入抖音 ID 和消息
+  └─► 点击"上传命令"
+  └─► 数据写入 message_queue 表 ✓
+
+步骤 2: 启动自动执行
+  └─► 打开抖音 PC 客户端
+  └─► 运行"启动自动执行.bat"
+  └─► 程序自动执行 ✓
+
+步骤 3: 查看结果
+  └─► 查看 logs/ 目录的日志
+  └─► 查看状态面板
+```
+
+### 自动执行流程
+
+```
+主循环（每 5 秒）：
+│
+├─► 监听私信红点
+│   └─► 检测到红点？
+│       ├─ 是 → 识别数字 → 点击进入 → 识别消息 → 回复"你好" → 返回
+│       └─ 否 → 继续
+│
+├─► 查询数据库队列
+│   └─► 有待执行消息？
+│       ├─ 是 → 按时间排序 → 检查频率 → 执行发送 → 记录日志 → 删除
+│       └─ 否 → 继续监听
+│
+└─► 等待 5 秒，进入下一轮
+```
+
+---
+
+## 📊 数据库表
+
+### message_queue - 消息队列
+```sql
+CREATE TABLE message_queue (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    douyin_id VARCHAR(50) NOT NULL,
+    message TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    status TINYINT DEFAULT 0,
+    retry_count TINYINT DEFAULT 0
+);
+```
+
+### message_logs - 发送日志
+```sql
+CREATE TABLE message_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    douyin_id VARCHAR(50) NOT NULL,
+    message TEXT NOT NULL,
+    send_status TINYINT DEFAULT 0,
+    retry_count TINYINT DEFAULT 0,
+    error_message VARCHAR(500),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## 🔧 点位校准
+
+### 必要点位
+以下点位必须校准才能正常工作：
+
+1. **点击搜索框** - 搜索用户
+2. **点击用户头像** - 进入用户主页
+3. **点击头像内的私信** - 打开私信
+4. **点击发送消息框** - 输入消息
+5. **私信聊天框左侧用户区域置顶用户** - 返回列表
+
+### 校准方法
 ```bash
-pip install pywin32 Pillow opencv-python numpy
+python app\calibrate_position.py
 ```
 
-可选 OCR 依赖（文字识别）:
+---
 
+## 📝 日志示例
+
+### 上传命令日志
+```
+2026-04-20 15:30:45 - UploadCommand - INFO - 启动抖音私信命令上传工具
+2026-04-20 15:30:50 - UploadCommand - INFO - 数据库初始化成功
+2026-04-20 15:31:00 - UploadCommand - INFO - 命令上传成功：ID=1
+```
+
+### 自动执行日志
+```
+2026-04-20 15:35:00 - AutoExecutor - INFO - 启动抖音私信自动化执行程序
+2026-04-20 15:35:01 - AutoExecutor - INFO - 数据库初始化成功
+2026-04-20 15:35:02 - AutoExecutor - INFO - 抖音窗口已打开：1080x900
+2026-04-20 15:35:05 - AutoExecutor - DEBUG - === 开始监听私信消息 ===
+2026-04-20 15:35:06 - AutoExecutor - INFO - ✓ 识别到未读消息数量：3 条
+2026-04-20 15:35:08 - AutoExecutor - INFO - ✓ 成功识别 3 条消息
+2026-04-20 15:35:09 - AutoExecutor - INFO - 自动回复消息：你好
+2026-04-20 15:35:10 - AutoExecutor - INFO - ✓ 监听完成
+2026-04-20 15:35:15 - AutoExecutor - INFO - 查询到 2 条待执行消息
+2026-04-20 15:35:16 - AutoExecutor - INFO - 正在发送消息给 86759655452: 你好...
+2026-04-20 15:35:31 - AutoExecutor - INFO - 消息发送成功
+```
+
+---
+
+## ⚠️ 注意事项
+
+### 1. 抖音窗口
+- 运行自动执行时必须打开抖音 PC 客户端
+- 窗口保持在前景，不要最小化
+- 窗口尺寸建议：1080x900
+
+### 2. 频率控制
+- 不要修改为更激进的数值
+- 抖音风控较严，建议保守设置
+- 如遇封号风险，增大发送间隔
+
+### 3. 点位校准
+- 定期检查和校准点位
+- 抖音更新后需重新校准
+- 确保坐标准确
+
+### 4. 日志管理
+- 定期清理 logs 目录
+- 建议保留最近 30 天日志
+- 重要日志及时备份
+
+### 5. 数据库备份
+- 定期备份 message_logs 表
+- 可用于数据分析和审计
+- 建议每周备份一次
+
+---
+
+## 🔍 故障排除
+
+### 问题 1：数据库连接失败
+**解决方法：**
+- 检查网络连接
+- 确认数据库配置正确
+- 测试能否访问 8.136.195.32:3306
+
+### 问题 2：缺少必要点位
+**解决方法：**
 ```bash
-# 方案1: RapidOCR (推荐)
-pip install rapidocr
-
-# 方案2: cnocr
-pip install cnocr
-
-# 方案3: pytesseract (需要安装 Tesseract-OCR)
-pip install pytesseract
+python app\calibrate_position.py
 ```
+校准所有必要点位
 
-或从源码安装:
+### 问题 3：图形界面启动失败
+**解决方法：**
+- 错误"unknown option -font"已修复
+- 如仍有问题，检查 Python 版本
+- 确保安装了 tkinter
 
+### 问题 4：发送失败
+**解决方法：**
+- 查看 logs/error_*.log 错误日志
+- 确认抖音窗口已打开
+- 检查点位是否准确
+- 增大发送时间间隔
+
+### 问题 5：识别不到红点
+**解决方法：**
+- 检查私信窗口是否打开
+- 调整红点检测参数（tolerance, min_area）
+- 确保抖音界面布局未变化
+
+---
+
+## 📦 依赖安装
+
+### 安装依赖
 ```bash
-cd douyin_auto
-pip install -e .
+pip install -r requirements.txt
 ```
 
-## 快速开始
-
-```python
-from douyin_auto import Douyin
-
-# 方式一：查找窗口并固定大小（推荐）
-dy = Douyin.open()                          # 窗口固定到 (0,0) 1080x900
-dy = Douyin.open(x=100, y=50, width=960, height=1080)  # 自定义
-
-# 方式二：仅查找窗口（不改变大小）
-dy = Douyin()
-dy.set_size()                                # 后续可调用 set_size() 固定大小
-
-
-# 视频操作
-dy.NextVideo()       # 下一个视频
-dy.PreviousVideo()   # 上一个视频
-dy.Like()            # 点赞
-dy.Unlike()          # 取消点赞
-dy.Collect()         # 收藏
-dy.Share()           # 分享
-dy.Pause()           # 暂停视频
-dy.Play()            # 播放视频
-dy.ScrollToTop()     # 滚动到顶部
-dy.ScrollToBottom()  # 滚动到底部
-
-# 评论操作
-dy.SendComment('写的真好！')  # 发送评论
-dy.OpenComments()            # 打开评论
-dy.CloseComments()           # 关闭评论
-dy.GetComments(count=20)     # 获取评论列表
-dy.LikeComment(index=0)      # 点赞指定评论
-
-# 用户操作
-dy.Follow()         # 关注作者
-dy.Unfollow()       # 取消关注
-dy.ViewProfile()   # 查看资料
-dy.GetUserProfile() # 获取用户资料
-
-# 搜索与消息
-dy.Search('关键词')           # 搜索
-dy.SendMessage('用户名', '你好')  # 发送私信
-dy.OpenMessages()              # 打开私信列表
-
-# 私信消息处理（OCR+颜色检测）
-dy.GetPrivateMessages(count=50)      # 获取当前会话私信消息
-dy.GetPrivateMessagesByPosition()    # 使用已知位置获取私信
-dy.GetSessionList()                  # 获取私信会话列表
-dy.ClickSession(rel_y)               # 点击指定会话
-dy.OpenMessageSession('用户名')       # 打开指定用户的私信会话
-dy.GetAllNewMessage()                # 获取所有未读私信
-
-# 截图
-dy.TakeScreenshot()            # 截图
-
-# 智能定位（CV方法）
-dy.SmartClick('like')          # 智能点击点赞按钮
-dy.LocateElement('comment')    # 定位评论按钮位置
-
-# 消息监听
-dy.CheckNewMessage()           # 检查是否有新消息（截图差异检测）
-dy.CheckNewMessageByRedDot()   # 通过红点检测是否有新消息
-dy.StartListening(callback)    # 开始监听新消息
-dy.GetNewMessage(timeout=10)   # 等待获取新消息
-dy.OnNewMessage(callback)      # 注册新消息回调
+### requirements.txt
+```txt
+pywin32
+Pillow
+opencv-python
+numpy
+PyMySQL>=1.0.0
+rapidocr  # OCR 识别
 ```
 
-## 视觉识别模块 (vision.py)
+---
 
-提供多种计算机视觉功能：
+## 🎯 应用场景
 
-### OCR 文字识别
+### 1. 自动客服
+- 监听用户私信
+- 自动回复常见问题
+- 7x24 小时在线
 
-```python
-from douyin_auto.vision import recognize_text
+### 2. 批量通知
+- 上传发送队列
+- 自动执行发送
+- 控制发送频率
 
-results = recognize_text(image, lang="cn")
-# 返回: [{"text": "文字", "bbox": [[x1,y1], [x2,y1], [x2,y2], [x1,y2]]}, ...]
-```
+### 3. 消息分析
+- 识别消息内容
+- 分析用户需求
+- 数据统计
 
-### 模板匹配
+### 4. 智能对话
+- 获取最新消息
+- 对接 AI 接口
+- 智能回复
 
-```python
-from douyin_auto.vision import find_element_by_template
+---
 
-found, rel_x, rel_y, info = find_element_by_template(
-    image, template_path, threshold=0.7
-)
-```
+## 📖 快速参考
 
-### 消息框检测
+### 启动程序
+| 程序 | 命令 |
+|------|------|
+| 上传工具 | `bin\启动上传工具.bat` |
+| 自动执行 | `bin\启动自动执行.bat` |
+| 测试数据库 | `python app\test_database.py` |
+| 点位校准 | `python app\calibrate_position.py` |
 
-```python
-from douyin_auto.vision import detect_message_box, extract_messages_from_box
+### 配置位置
+| 配置 | 文件 |
+|------|------|
+| 数据库 | `douyin_auto/db_config.py` |
+| 发送速度 | `app/auto_executor.py` |
+| 点位 | `douyin_auto/positions.py` |
 
-# 检测消息气泡框
-result = detect_message_box(image, debug=True)
-# 返回: {"box": (x1,y1,x2,y2), "bubbles": [...], "debug_image": ...}
+### 日志位置
+| 日志 | 文件 |
+|------|------|
+| 上传日志 | `logs/upload_YYYYMMDD.log` |
+| 执行日志 | `logs/executor_YYYYMMDD.log` |
+| 错误日志 | `logs/error_YYYYMMDD.log` |
 
-# 提取消息内容
-messages = extract_messages_from_box(image, box, debug=True)
-# 返回: [{"text": "内容", "is_self": False, "sender": "对方"}, ...]
-```
+---
 
-### 智能定位器
+## 📞 技术支持
 
-```python
-from douyin_auto.vision import SmartLocator
-
-locator = SmartLocator(hwnd)
-success, rx, ry, method = locator.locate("like_button")
-locator.locate_click("like_button")
-```
-
-## 脚本工具
-
-### 位置校准
-
+### 查看日志
+遇到问题先查看日志文件：
 ```bash
-python scripts/calibrate_position.py
+# 查看最新执行日志
+type logs\executor_*.log
+
+# 查看错误日志
+type logs\error_*.log
 ```
 
-将抖音窗口设置为 1080x900 大小，然后交互式校准各按钮位置。
-
-### 自动化运行器
-
+### 测试数据库
 ```bash
-python scripts/run_automation.py
+python app\test_database.py
 ```
 
-支持：
-- 按点位名称排序执行所有校准点位
-- 自定义选择点位顺序执行
-- 自定义间隔时间和重复次数
-
-### 批量发送私信
-
+### 检查配置
 ```bash
-python scripts/send_message.py
+python test_send_config.py
 ```
 
-从 user_list.txt 读取用户名列表，批量发送私信。
+---
 
-### 窗口控制工具
-
-```bash
-python scripts/window_controller.py
-```
-
-快速测试窗口控制功能，如查找窗口、调整大小等。
-
-### 私信监听
-
-```bash
-python scripts/listen_messages.py
-```
-
-实时监听私信消息，支持：
-- 打开私信弹窗
-- 检测左侧用户区域红点
-- OCR 识别未读数量
-- 点击红点打开会话
-
-## 元素类
-
-```python
-from douyin_auto.elements import (
-    VideoElement,      # 视频元素
-    CommentElement,   # 评论元素
-    UserElement,      # 用户元素
-    MessageElement,   # 私信消息元素
-    SessionElement,   # 会话元素
-)
-```
-
-## 注意事项
-
-1. 所有操作需要抖音窗口在前台
-2. 抖音使用 CEF 渲染，UIAutomation 无法访问内部元素
-3. 推荐使用智能定位功能 `SmartClick()`，采用三层定位策略：
-   - 模板匹配：使用 `templates/` 目录下的按钮截图
-   - 颜色检测：基于按钮颜色特征定位
-   - 相对坐标 fallback：使用校准的相对坐标
-4. 消息监听使用截图差异检测，参考 wxauto 的 RuntimeId 思路
-5. 首次使用需运行 `calibrate_position.py` 校准点位
-6. 不同抖音客户端版本的按钮位置可能不同，需重新校准
-
-## 许可证
-
-MIT License
-
-## 免责声明
-
-代码仅供学习交流，请勿用于商业或非法用途。
+**版本：** v2.0  
+**更新日期：** 2026-04-20  
+**环境：** D:\anaconda3\envs\eav  
+**数据库：** MySQL 8.136.195.32:3306/DY_database

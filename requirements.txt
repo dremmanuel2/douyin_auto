@@ -2,6 +2,7 @@ pywin32
 Pillow
 opencv-python
 numpy
+PyMySQL>=1.0.0  # MySQL 数据库连接
 
 # 可选
-cnocr  # 中文OCR
+cnocr  # 中文 OCR

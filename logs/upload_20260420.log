@@ -1,0 +1,48 @@
+2026-04-20 15:15:20,605 - UploadCommand - INFO - ==================================================
+2026-04-20 15:15:20,605 - UploadCommand - INFO - 启动抖音私信命令上传工具
+2026-04-20 15:15:20,606 - UploadCommand - INFO - ==================================================
+2026-04-20 15:15:20,839 - douyin_auto.db_utils - INFO - 数据库检查完成：DY_database
+2026-04-20 15:15:20,884 - douyin_auto.db_utils - INFO - 数据库连接成功：8.136.195.32:3306/DY_database
+2026-04-20 15:15:20,912 - douyin_auto.db_utils - INFO - 数据表 message_queue 检查完成
+2026-04-20 15:15:20,949 - douyin_auto.db_utils - INFO - 数据表 message_logs 检查完成
+2026-04-20 15:15:20,950 - UploadCommand - INFO - 数据库初始化成功
+2026-04-20 15:15:21,009 - UploadCommand - ERROR - 程序异常：unknown option "-font"
+2026-04-20 15:15:24,228 - UploadCommand - INFO - 程序退出
+2026-04-20 15:17:56,105 - UploadCommand - INFO - ==================================================
+2026-04-20 15:17:56,105 - UploadCommand - INFO - 启动抖音私信命令上传工具
+2026-04-20 15:17:56,114 - UploadCommand - INFO - ==================================================
+2026-04-20 15:17:56,224 - douyin_auto.db_utils - INFO - 数据库检查完成：DY_database
+2026-04-20 15:17:56,251 - douyin_auto.db_utils - INFO - 数据库连接成功：8.136.195.32:3306/DY_database
+2026-04-20 15:17:56,272 - douyin_auto.db_utils - INFO - 数据表 message_queue 检查完成
+2026-04-20 15:17:56,296 - douyin_auto.db_utils - INFO - 数据表 message_logs 检查完成
+2026-04-20 15:17:56,296 - UploadCommand - INFO - 数据库初始化成功
+2026-04-20 15:26:14,539 - UploadCommand - INFO - ==================================================
+2026-04-20 15:26:14,539 - UploadCommand - INFO - 启动抖音私信命令上传工具
+2026-04-20 15:26:14,540 - UploadCommand - INFO - ==================================================
+2026-04-20 15:26:14,660 - douyin_auto.db_utils - INFO - 数据库检查完成：DY_database
+2026-04-20 15:26:14,690 - douyin_auto.db_utils - INFO - 数据库连接成功：8.136.195.32:3306/DY_database
+2026-04-20 15:26:14,714 - douyin_auto.db_utils - INFO - 数据表 message_queue 检查完成
+2026-04-20 15:26:14,738 - douyin_auto.db_utils - INFO - 数据表 message_logs 检查完成
+2026-04-20 15:26:14,738 - UploadCommand - INFO - 数据库初始化成功
+2026-04-20 15:26:58,216 - UploadCommand - INFO - 命令上传成功：ID=5, 抖音 ID=86759655452
+2026-04-20 15:34:44,856 - UploadCommand - INFO - ==================================================
+2026-04-20 15:34:44,856 - UploadCommand - INFO - 启动抖音私信命令上传工具
+2026-04-20 15:34:44,857 - UploadCommand - INFO - ==================================================
+2026-04-20 15:34:44,979 - douyin_auto.db_utils - INFO - 数据库检查完成：DY_database
+2026-04-20 15:34:45,011 - douyin_auto.db_utils - INFO - 数据库连接成功：8.136.195.32:3306/DY_database
+2026-04-20 15:34:45,039 - douyin_auto.db_utils - INFO - 数据表 message_queue 检查完成
+2026-04-20 15:34:45,060 - douyin_auto.db_utils - INFO - 数据表 message_logs 检查完成
+2026-04-20 15:34:45,060 - UploadCommand - INFO - 数据库初始化成功
+2026-04-20 15:35:04,487 - UploadCommand - INFO - 命令上传成功：ID=6, 抖音 ID=86759655452
+2026-04-20 15:42:39,202 - UploadCommand - ERROR - 数据库连接失效
+2026-04-20 15:42:47,006 - UploadCommand - ERROR - 数据库连接失效
+2026-04-20 15:42:52,026 - UploadCommand - INFO - 程序退出
+2026-04-20 15:43:38,134 - UploadCommand - INFO - ==================================================
+2026-04-20 15:43:38,135 - UploadCommand - INFO - 启动抖音私信命令上传工具
+2026-04-20 15:43:38,135 - UploadCommand - INFO - ==================================================
+2026-04-20 15:43:38,234 - douyin_auto.db_utils - INFO - 数据库检查完成：DY_database
+2026-04-20 15:43:38,285 - douyin_auto.db_utils - INFO - 数据库连接成功：8.136.195.32:3306/DY_database
+2026-04-20 15:43:38,309 - douyin_auto.db_utils - INFO - 数据表 message_queue 检查完成
+2026-04-20 15:43:38,339 - douyin_auto.db_utils - INFO - 数据表 message_logs 检查完成
+2026-04-20 15:43:38,339 - UploadCommand - INFO - 数据库初始化成功
+2026-04-20 15:43:59,461 - UploadCommand - INFO - 命令上传成功：ID=8, 抖音 ID=86759655452
