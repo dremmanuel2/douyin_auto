@@ -37,6 +37,9 @@ from .vision import (
     detect_message_area,
     find_element_by_template,
     detect_red_badge,
+    verify_search_result,
+    verify_private_message_button,
+    verify_message_input,
 )
 
 # 导入用户校准的位置配置
@@ -678,6 +681,102 @@ class Douyin:
             self._click_relative(0.50, 0.85)
         time.sleep(0.3)
 
+def _load_config(self):
+        """加载配置文件"""
+        import json
+        config_path = os.path.join(os.path.dirname(__file__), "..", "app", "config.json")
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {"interval": 1.0, "validation_repeat": 5}
+    
+    def _wait_and_verify(self, verify_func, screenshot_func, position_key, 
+                         max_retries=None, interval=None, stage_name=""):
+        """
+        等待并验证页面状态
+        
+        Args:
+            verify_func: 验证函数
+            screenshot_func: 截图函数
+            position_key: 位置配置键名
+            max_retries: 最大重试次数
+            interval: 重试间隔（秒）
+            stage_name: 阶段名称（用于日志）
+        
+        Returns:
+            success: bool
+        """
+        config = self._load_config()
+        if max_retries is None:
+            max_retries = config.get("validation_repeat", 5)
+        if interval is None:
+            interval = config.get("interval", 1.0)
+        
+        print("    正在验证{}...".format(stage_name))
+        
+        for i in range(max_retries):
+            try:
+                # 获取位置配置
+                if position_key not in POSITIONS:
+                    print("    警告：缺少位置配置 {}".format(position_key))
+                    # 如果没有位置配置，使用默认等待
+                    time.sleep(interval)
+                    continue
+                
+                x, y = POSITIONS[position_key]
+                left, top, right, bottom = GetWindowRect(self._hwnd)
+                width = right - left
+                height = bottom - top
+                
+                # 计算截图区域（头像区域，约 100x100 像素）
+                screenshot_width = int(width * 0.15)
+                screenshot_height = int(height * 0.15)
+                x1 = int(left + x * width)
+                y1 = int(top + y * height)
+                x2 = min(x1 + screenshot_width, right)
+                y2 = min(y1 + screenshot_height, bottom)
+                
+                # 调整截图区域确保合理大小
+                if x2 - x1 < 50:
+                    x2 = min(x1 + 150, right)
+                if y2 - y1 < 50:
+                    y2 = min(y1 + 150, bottom)
+                
+                # 截图
+                from PIL import ImageGrab
+                import numpy as np
+                import cv2
+                
+                img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+                img_np = np.array(img)
+                if len(img_np.shape) == 3 and img_np.shape[2] == 4:
+                    img_np = img_np[:, :, :3]
+                img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                
+                # 验证
+                success, ocr_text = verify_func(img_bgr)
+                
+                if success:
+                    print("    ✓ {}验证成功，识别到：{}".format(stage_name, ocr_text))
+                    return True
+                else:
+                    if i < max_retries - 1:
+                        print("    第{}次验证未通过（识别：{}），{}秒后重试...".format(
+                            i + 1, ocr_text if ocr_text else "无文字", interval))
+                        time.sleep(interval)
+                    else:
+                        print("    ✗ {}验证失败（已达最大重试次数）".format(stage_name))
+                        
+            except Exception as e:
+                if i < max_retries - 1:
+                    print("    验证异常：{}，{}秒后重试...".format(e, interval))
+                    time.sleep(interval)
+                else:
+                    print("    ✗ 验证异常：{}（已达最大重试次数）".format(e))
+        
+        return False
+    
     def SendMessage(self, user, text, follow_first=True):
         """
         搜索用户并发送私信的完整流程
@@ -685,19 +784,37 @@ class Douyin:
         Args:
             user: 要搜索的用户名
             text: 要发送的消息内容
-            follow_first: 是否先关注再发消息 (默认True)
+            follow_first: 是否先关注再发消息 (默认 True)
         """
         self._ensure_foreground()
 
         # 1. 搜索用户
-        print("正在搜索用户: {}".format(user))
+        print("正在搜索用户：{}".format(user))
         self.Search(user)
         time.sleep(1.0)
+
+        # 验证 1：搜索结果页面是否加载完成（识别"抖音号"）
+        if not self._wait_and_verify(
+            verify_search_result,
+            self.TakeScreenshot,
+            "点击用户头像",
+            stage_name="搜索结果页面"
+        ):
+            print("警告：搜索结果页面验证未通过，继续执行...")
 
         # 2. 点击用户头像
         print("正在点击用户头像...")
         self.ClickUserAvatar()
         time.sleep(1.0)
+
+        # 验证 2：私信按钮是否可见（识别"私信"）
+        if not self._wait_and_verify(
+            verify_private_message_button,
+            self.TakeScreenshot,
+            "点击私信",
+            stage_name="私信按钮"
+        ):
+            print("警告：私信按钮验证未通过，继续执行...")
 
         # 3. 如果需要关注，先点击关注
         if follow_first:
@@ -710,13 +827,22 @@ class Douyin:
         self.ClickPrivateMessage()
         time.sleep(1.0)
 
+        # 验证 3：消息输入框是否可用（识别"发送消息"）
+        if not self._wait_and_verify(
+            verify_message_input,
+            self.TakeScreenshot,
+            "点击发送消息框",
+            stage_name="消息输入框"
+        ):
+            print("警告：消息输入框验证未通过，继续执行...")
+
         # 5. 点击发送消息框
         print("正在点击发送消息框...")
         self.ClickMessageInput()
         time.sleep(0.5)
 
         # 6. 输入消息内容
-        print("正在输入消息: {}".format(text))
+        print("正在输入消息：{}".format(text))
         SetClipboardText(text)
         time.sleep(0.2)
 
@@ -725,7 +851,7 @@ class Douyin:
 
         win32api.keybd_event(win32con.VK_CONTROL, 0, 0, 0)
         win32api.keybd_event(0x56, 0, 0, 0)
-        time.sleep(0.1)
+        time.sleep(0.05)
         win32api.keybd_event(0x56, 0, win32con.KEYEVENTF_KEYUP, 0)
         win32api.keybd_event(win32con.VK_CONTROL, 0, win32con.KEYEVENTF_KEYUP, 0)
         time.sleep(0.3)

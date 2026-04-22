@@ -20,6 +20,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from douyin_auto import Douyin
 from douyin_auto.positions import POSITIONS
 from douyin_auto.utils import SetClipboardText, SendKey, Keys
+from douyin_auto.vision import (
+    verify_search_result,
+    verify_private_message_button,
+    verify_message_input,
+    expand_image_for_ocr,
+    recognize_text,
+)
+import cv2
+import numpy as np
+from PIL import ImageGrab
 
 
 # ============ 可调整的参数 ============
@@ -29,6 +39,92 @@ INTERVAL = 3.0  # 每步之间等待的秒数（可根据需要调整）
 NEED_FOLLOW = False  # 是否先关注再发消息
 MESSAGE_ENTRY = "search_result"  # 私信入口类型: "search_result" 或 "top_screen"
 # ====================================
+
+
+def load_config():
+    """加载配置文件"""
+    import json
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "config.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {"interval": 1.0, "validation_repeat": 5}
+
+
+def wait_and_verify(dy, verify_func, position_key, stage_name=""):
+    """
+    等待并验证页面状态
+    
+    Args:
+        dy: Douyin 实例
+        verify_func: 验证函数
+        position_key: 位置配置键名
+        stage_name: 阶段名称
+    
+    Returns:
+        success: bool
+    """
+    config = load_config()
+    max_retries = config.get("validation_repeat", 5)
+    interval = config.get("interval", 1.0)
+    
+    print("    正在验证{}...".format(stage_name))
+    
+    for i in range(max_retries):
+        try:
+            if position_key not in POSITIONS:
+                print("    警告：缺少位置配置 {}".format(position_key))
+                time.sleep(interval)
+                continue
+            
+            x, y = POSITIONS[position_key]
+            left, top, right, bottom = win32gui.GetWindowRect(dy.hwnd)
+            width = right - left
+            height = bottom - top
+            
+            # 计算截图区域
+            screenshot_width = int(width * 0.15)
+            screenshot_height = int(height * 0.15)
+            x1 = int(left + x * width)
+            y1 = int(top + y * height)
+            x2 = min(x1 + screenshot_width, right)
+            y2 = min(y1 + screenshot_height, bottom)
+            
+            if x2 - x1 < 50:
+                x2 = min(x1 + 150, right)
+            if y2 - y1 < 50:
+                y2 = min(y1 + 150, bottom)
+            
+            # 截图
+            img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+            img_np = np.array(img)
+            if len(img_np.shape) == 3 and img_np.shape[2] == 4:
+                img_np = img_np[:, :, :3]
+            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+            
+            # 验证
+            success, ocr_text = verify_func(img_bgr)
+            
+            if success:
+                print("    ✓ {}验证成功，识别到：{}".format(stage_name, ocr_text))
+                return True
+            else:
+                if i < max_retries - 1:
+                    print("    第{}次验证未通过（识别：{}），{}秒后重试...".format(
+                        i + 1, ocr_text if ocr_text else "无文字", interval))
+                    time.sleep(interval)
+                else:
+                    print("    ✗ {}验证失败（已达最大重试次数）".format(stage_name))
+                    
+        except Exception as e:
+            if i < max_retries - 1:
+                print("    验证异常：{}，{}秒后重试...".format(e, interval))
+                time.sleep(interval)
+            else:
+                print("    ✗ 验证异常：{}（已达最大重试次数）".format(e))
+    
+    return False
 
 
 def input_text_via_clipboard(text, hwnd):
@@ -113,10 +209,18 @@ def send_message_via_search(user_id, message, need_follow=True, interval=1.0):
             SendKey(Keys.ENTER, dy.hwnd)
         time.sleep(interval)
 
+        # 验证 1：搜索结果页面是否加载完成（识别"抖音号"）
+        print("\n[验证 1] 检测搜索结果页面")
+        wait_and_verify(dy, verify_search_result, "点击用户头像", "搜索结果页面")
+
         # 2. 点击头像
-        print("[3/6] 点击用户头像")
+        print("\n[3/7] 点击用户头像")
         dy.Click(*POSITIONS["点击用户头像"])
         time.sleep(interval)
+
+        # 验证 2：私信按钮是否可见（识别"私信"）
+        print("\n[验证 2] 检测私信按钮")
+        wait_and_verify(dy, verify_private_message_button, "点击私信", "私信按钮")
 
         # 3. 关注
         if need_follow:
@@ -125,12 +229,16 @@ def send_message_via_search(user_id, message, need_follow=True, interval=1.0):
             time.sleep(interval)
 
         # 4. 私信
-        print("[5/6] 点击头像内的私信")
+        print("[5/7] 点击头像内的私信")
         dy.Click(*POSITIONS["点击头像内的私信"])
         time.sleep(interval)
 
+        # 验证 3：消息输入框是否可用（识别"发送消息"）
+        print("\n[验证 3] 检测消息输入框")
+        wait_and_verify(dy, verify_message_input, "点击发送消息框", "消息输入框")
+
         # 5. 发消息
-        print("[6/6] 点击发送消息框")
+        print("[6/7] 点击发送消息框")
         dy.Click(*POSITIONS["点击发送消息框"])
         time.sleep(0.5)
 

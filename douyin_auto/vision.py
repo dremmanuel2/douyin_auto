@@ -1409,3 +1409,127 @@ def _process_bubbles_separately(image, box, bubbles, screenshots_dir):
         x1, y1 = POSITIONS["打开好友的私信窗口左上角"]
         x2, y2 = POSITIONS["打开好友的私信窗口右下角"]
         return (x1, y1, x2, y2)
+
+
+# ==================== 页面状态验证 ====================
+
+
+def expand_image_for_ocr(image, target_size=200):
+    """将图像扩展到指定尺寸，背景填充黑色"""
+    if image is None:
+        return np.zeros((target_size, target_size, 3), dtype=np.uint8)
+    
+    h, w = image.shape[:2]
+    if h == 0 or w == 0:
+        return np.zeros((target_size, target_size, 3), dtype=np.uint8)
+    
+    expanded = np.zeros((target_size, target_size, 3), dtype=np.uint8)
+    start_x = (target_size - w) // 2
+    start_y = (target_size - h) // 2
+    expanded[start_y : start_y + h, start_x : start_x + w] = image
+    return expanded
+
+
+def verify_search_result(image, target_text="抖音号"):
+    """
+    验证搜索结果页面是否加载完成
+    
+    Args:
+        image: 用户头像区域截图（BGR 格式）
+        target_text: 要识别的目标文字（默认"抖音号"）
+    
+    Returns:
+        verified: bool - 是否验证成功
+        ocr_text: str - OCR 识别到的文字
+    """
+    if image is None:
+        return False, ""
+    
+    # 扩展图片以提高 OCR 识别率
+    expanded = expand_image_for_ocr(image, target_size=200)
+    
+    # OCR 识别
+    results = recognize_text(expanded, lang="cn")
+    
+    if not results:
+        return False, ""
+    
+    # 检查是否包含目标文字
+    all_text = ""
+    for item in results:
+        text = item.get("text", "").strip()
+        all_text += text
+        if target_text in text:
+            return True, all_text
+    
+    return False, all_text
+
+
+def verify_private_message_button(image, target_text="私信"):
+    """
+    验证私信按钮是否可见
+    
+    Args:
+        image: 私信按钮区域截图（BGR 格式）
+        target_text: 要识别的目标文字（默认"私信"）
+    
+    Returns:
+        verified: bool - 是否验证成功
+        ocr_text: str - OCR 识别到的文字
+    """
+    if image is None:
+        return False, ""
+    
+    # 扩展图片以提高 OCR 识别率
+    expanded = expand_image_for_ocr(image, target_size=200)
+    
+    # OCR 识别
+    results = recognize_text(expanded, lang="cn")
+    
+    if not results:
+        return False, ""
+    
+    # 检查是否包含目标文字
+    all_text = ""
+    for item in results:
+        text = item.get("text", "").strip()
+        all_text += text
+        if target_text in text:
+            return True, all_text
+    
+    return False, all_text
+
+
+def verify_message_input(image, target_text="发送消息"):
+    """
+    验证消息输入框是否可用
+    
+    Args:
+        image: 消息输入框区域截图（BGR 格式）
+        target_text: 要识别的目标文字（默认"发送消息"）
+    
+    Returns:
+        verified: bool - 是否验证成功
+        ocr_text: str - OCR 识别到的文字
+    """
+    if image is None:
+        return False, ""
+    
+    # 扩展图片以提高 OCR 识别率
+    expanded = expand_image_for_ocr(image, target_size=200)
+    
+    # OCR 识别
+    results = recognize_text(expanded, lang="cn")
+    
+    if not results:
+        return False, ""
+    
+    # 检查是否包含目标文字
+    all_text = ""
+    for item in results:
+        text = item.get("text", "").strip()
+        all_text += text
+        if target_text in text:
+            return True, all_text
+    
+    return False, all_text
