@@ -5,11 +5,13 @@
 
 # 数据库配置
 MYSQL_DB_CONFIG = {
+    "name": "zju_bj_llm",
     "user": "root",
-    "password": "chatbi123",
-    "host": "8.136.195.32",
-    "port": 3306,
-    "db_name": "DY_database",
+    "password": "zju.edu.bj.cn",
+    "host": "100.100.30.97",
+    "port": 5455,
+    "max_connections": 100,
+    "stale_timeout": 30,
 }
 
 # 频率控制配置
