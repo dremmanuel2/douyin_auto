@@ -28,7 +28,13 @@ from douyin_auto.db_config import (
     LOG_CONFIG,
 )
 from douyin_auto import Douyin
+from douyin_auto.positions import POSITIONS
 from douyin_auto.utils import SetClipboardText, SendKey, Keys
+from douyin_auto.vision import (
+    verify_search_result,
+    verify_private_message_button,
+    verify_message_input,
+)
 import win32gui
 import win32con
 import win32api
@@ -80,13 +86,24 @@ def setup_logger():
 logger = setup_logger()
 
 
-def find_reddot_by_color(image, target_bgr=(84, 45, 255), tolerance=20, min_area=30):
+def load_config():
+    """加载配置文件"""
+    import json
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app", "config.json")
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {"interval": 1.0, "validation_repeat": 5}
+
+
+def find_reddot_by_color(image, target_bgr=(84, 45, 255), tolerance=40, min_area=30):
     """使用颜色检测红点 (RGB=255,45,84 -> BGR=84,45,255)"""
     h, w = image.shape[:2]
 
     target_color = np.array(target_bgr, dtype=np.uint8)
-    lower = np.array([max(0, c - tolerance) for c in target_color], dtype=np.uint8)
-    upper = np.array([min(255, c + tolerance) for c in target_color], dtype=np.uint8)
+    lower = np.array([max(0, int(c) - tolerance) for c in target_color], dtype=np.uint8)
+    upper = np.array([min(255, int(c) + tolerance) for c in target_color], dtype=np.uint8)
 
     mask = cv2.inRange(image, lower, upper)
 
@@ -422,6 +439,90 @@ class AutoExecutor:
         except Exception as e:
             logger.error(f"识别消息失败：{e}")
             return []
+    
+    def _wait_and_verify(self, verify_func, position_key, stage_name="",
+                         max_retries=None, interval=None, abort_on_fail=False):
+        """
+        等待并验证页面状态
+        
+        Args:
+            verify_func: 验证函数
+            position_key: 位置配置键名
+            stage_name: 阶段名称
+            max_retries: 最大重试次数
+            interval: 重试间隔（秒）
+            abort_on_fail: 验证失败时是否中止流程
+        
+        Returns:
+            (success, should_abort): tuple
+        """
+        config = load_config()
+        if max_retries is None:
+            max_retries = config.get("validation_repeat", 5)
+        if interval is None:
+            interval = config.get("interval", 1.0)
+        
+        logger.debug("    正在验证{}...".format(stage_name))
+        
+        for i in range(max_retries):
+            try:
+                if position_key not in POSITIONS:
+                    logger.warning("    缺少位置配置 {}".format(position_key))
+                    time.sleep(interval)
+                    continue
+                
+                x, y = POSITIONS[position_key]
+                left, top, right, bottom = win32gui.GetWindowRect(self.hwnd)
+                width = right - left
+                height = bottom - top
+                
+                screenshot_width = int(width * 0.15)
+                screenshot_height = int(height * 0.15)
+                x1 = int(left + x * width)
+                y1 = int(top + y * height)
+                x2 = min(x1 + screenshot_width, right)
+                y2 = min(y1 + screenshot_height, bottom)
+                
+                if x2 - x1 < 50:
+                    x2 = min(x1 + 150, right)
+                if y2 - y1 < 50:
+                    y2 = min(y1 + 150, bottom)
+                
+                img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+                img_np = np.array(img)
+                if len(img_np.shape) == 3 and img_np.shape[2] == 4:
+                    img_np = img_np[:, :, :3]
+                img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                
+                success, ocr_text = verify_func(img_bgr)
+                
+                if success:
+                    logger.info("    ✓ {}验证成功，识别到：{}".format(stage_name, ocr_text))
+                    return True, False
+                else:
+                    if i < max_retries - 1:
+                        logger.debug("    第{}次验证未通过（识别：{}），{}秒后重试...".format(
+                            i + 1, ocr_text if ocr_text else "无文字", interval))
+                        time.sleep(interval)
+                    else:
+                        logger.warning("    ✗ {}验证失败（已达最大重试次数{}次）".format(stage_name, max_retries))
+                        if abort_on_fail:
+                            logger.info("    → 中止当前发送流程，返回监听状态")
+                            return False, True
+                        return False, False
+                        
+            except Exception as e:
+                if i < max_retries - 1:
+                    logger.debug("    验证异常：{}，{}秒后重试...".format(e, interval))
+                    time.sleep(interval)
+                else:
+                    logger.error("    ✗ 验证异常：{}（已达最大重试次数）".format(e))
+                    if abort_on_fail:
+                        logger.info("    → 中止当前发送流程，返回监听状态")
+                        return False, True
+                    return False, False
+        
+        return False, False
 
     def check_rate_limit(self) -> bool:
         """
@@ -466,8 +567,6 @@ class AutoExecutor:
             self.douyin._ensure_foreground()
             time.sleep(1.0)
 
-            from douyin_auto.positions import POSITIONS
-
             if "点击搜索框" not in POSITIONS:
                 logger.error("缺少必要点位：点击搜索框")
                 return False
@@ -511,6 +610,18 @@ class AutoExecutor:
                 SendKey(Keys.ENTER, self.douyin.hwnd)
             time.sleep(3.0)
 
+            # 验证 1：搜索结果页面（识别"抖音号"）
+            logger.debug("验证 1: 检测搜索结果页面")
+            success, should_abort = self._wait_and_verify(
+                verify_search_result,
+                "点击用户头像",
+                "搜索结果页面",
+                abort_on_fail=True
+            )
+            if should_abort:
+                logger.warning("搜索结果页面验证失败，返回监听状态")
+                return False
+
             if "点击用户头像" not in POSITIONS:
                 logger.error("缺少必要点位：点击用户头像")
                 return False
@@ -518,6 +629,18 @@ class AutoExecutor:
             logger.debug("步骤 5: 点击用户头像")
             self.douyin.Click(*POSITIONS["点击用户头像"])
             time.sleep(2.0)
+
+            # 验证 2：私信按钮（识别"私信"）
+            logger.debug("验证 2: 检测私信按钮")
+            success, should_abort = self._wait_and_verify(
+                verify_private_message_button,
+                "点击私信",
+                "私信按钮",
+                abort_on_fail=True
+            )
+            if should_abort:
+                logger.warning("私信按钮验证失败，返回监听状态")
+                return False
 
             if "点击头像内的私信" in POSITIONS:
                 logger.debug("步骤 6: 点击私信按钮")
@@ -529,6 +652,18 @@ class AutoExecutor:
                 logger.error("缺少必要点位：点击私信")
                 return False
             time.sleep(2.0)
+
+            # 验证 3：消息输入框（识别"发送消息"）
+            logger.debug("验证 3: 检测消息输入框")
+            success, should_abort = self._wait_and_verify(
+                verify_message_input,
+                "点击发送消息框",
+                "消息输入框",
+                abort_on_fail=True
+            )
+            if should_abort:
+                logger.warning("消息输入框验证失败，返回监听状态")
+                return False
 
             if "点击发送消息框" not in POSITIONS:
                 logger.error("缺少必要点位：点击发送消息框")

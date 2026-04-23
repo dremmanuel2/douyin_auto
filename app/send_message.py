@@ -52,7 +52,7 @@ def load_config():
         return {"interval": 1.0, "validation_repeat": 5}
 
 
-def wait_and_verify(dy, verify_func, position_key, stage_name=""):
+def wait_and_verify(dy, verify_func, position_key, stage_name="", abort_on_fail=False):
     """
     等待并验证页面状态
     
@@ -61,9 +61,12 @@ def wait_and_verify(dy, verify_func, position_key, stage_name=""):
         verify_func: 验证函数
         position_key: 位置配置键名
         stage_name: 阶段名称
+        abort_on_fail: 验证失败时是否中止流程（默认 False）
     
     Returns:
-        success: bool
+        (success, should_abort): tuple
+            - success: bool - 验证是否成功
+            - should_abort: bool - 是否应该中止流程
     """
     config = load_config()
     max_retries = config.get("validation_repeat", 5)
@@ -108,14 +111,18 @@ def wait_and_verify(dy, verify_func, position_key, stage_name=""):
             
             if success:
                 print("    ✓ {}验证成功，识别到：{}".format(stage_name, ocr_text))
-                return True
+                return True, False
             else:
                 if i < max_retries - 1:
                     print("    第{}次验证未通过（识别：{}），{}秒后重试...".format(
                         i + 1, ocr_text if ocr_text else "无文字", interval))
                     time.sleep(interval)
                 else:
-                    print("    ✗ {}验证失败（已达最大重试次数）".format(stage_name))
+                    print("    ✗ {}验证失败（已达最大重试次数{}次）".format(stage_name, max_retries))
+                    if abort_on_fail:
+                        print("    → 中止当前发送流程，返回监听状态")
+                        return False, True
+                    return False, False
                     
         except Exception as e:
             if i < max_retries - 1:
@@ -123,8 +130,12 @@ def wait_and_verify(dy, verify_func, position_key, stage_name=""):
                 time.sleep(interval)
             else:
                 print("    ✗ 验证异常：{}（已达最大重试次数）".format(e))
+                if abort_on_fail:
+                    print("    → 中止当前发送流程，返回监听状态")
+                    return False, True
+                return False, False
     
-    return False
+    return False, False
 
 
 def input_text_via_clipboard(text, hwnd):
@@ -211,7 +222,12 @@ def send_message_via_search(user_id, message, need_follow=True, interval=1.0):
 
         # 验证 1：搜索结果页面是否加载完成（识别"抖音号"）
         print("\n[验证 1] 检测搜索结果页面")
-        wait_and_verify(dy, verify_search_result, "点击用户头像", "搜索结果页面")
+        success, should_abort = wait_and_verify(
+            dy, verify_search_result, "点击用户头像", "搜索结果页面", abort_on_fail=True
+        )
+        if should_abort:
+            print("\n搜索结果页面验证失败，返回监听状态")
+            return False
 
         # 2. 点击头像
         print("\n[3/7] 点击用户头像")
@@ -220,7 +236,12 @@ def send_message_via_search(user_id, message, need_follow=True, interval=1.0):
 
         # 验证 2：私信按钮是否可见（识别"私信"）
         print("\n[验证 2] 检测私信按钮")
-        wait_and_verify(dy, verify_private_message_button, "点击私信", "私信按钮")
+        success, should_abort = wait_and_verify(
+            dy, verify_private_message_button, "点击私信", "私信按钮", abort_on_fail=True
+        )
+        if should_abort:
+            print("\n私信按钮验证失败，返回监听状态")
+            return False
 
         # 3. 关注
         if need_follow:
@@ -235,7 +256,12 @@ def send_message_via_search(user_id, message, need_follow=True, interval=1.0):
 
         # 验证 3：消息输入框是否可用（识别"发送消息"）
         print("\n[验证 3] 检测消息输入框")
-        wait_and_verify(dy, verify_message_input, "点击发送消息框", "消息输入框")
+        success, should_abort = wait_and_verify(
+            dy, verify_message_input, "点击发送消息框", "消息输入框", abort_on_fail=True
+        )
+        if should_abort:
+            print("\n消息输入框验证失败，返回监听状态")
+            return False
 
         # 5. 发消息
         print("[6/7] 点击发送消息框")

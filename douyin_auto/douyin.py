@@ -692,7 +692,8 @@ def _load_config(self):
             return {"interval": 1.0, "validation_repeat": 5}
     
     def _wait_and_verify(self, verify_func, screenshot_func, position_key, 
-                         max_retries=None, interval=None, stage_name=""):
+                         max_retries=None, interval=None, stage_name="",
+                         abort_on_fail=False):
         """
         等待并验证页面状态
         
@@ -703,9 +704,12 @@ def _load_config(self):
             max_retries: 最大重试次数
             interval: 重试间隔（秒）
             stage_name: 阶段名称（用于日志）
+            abort_on_fail: 验证失败时是否中止流程（默认 False）
         
         Returns:
-            success: bool
+            (success, should_abort): tuple
+                - success: bool - 验证是否成功
+                - should_abort: bool - 是否应该中止流程
         """
         config = self._load_config()
         if max_retries is None:
@@ -759,14 +763,18 @@ def _load_config(self):
                 
                 if success:
                     print("    ✓ {}验证成功，识别到：{}".format(stage_name, ocr_text))
-                    return True
+                    return True, False
                 else:
                     if i < max_retries - 1:
                         print("    第{}次验证未通过（识别：{}），{}秒后重试...".format(
                             i + 1, ocr_text if ocr_text else "无文字", interval))
                         time.sleep(interval)
                     else:
-                        print("    ✗ {}验证失败（已达最大重试次数）".format(stage_name))
+                        print("    ✗ {}验证失败（已达最大重试次数{}次）".format(stage_name, max_retries))
+                        if abort_on_fail:
+                            print("    → 中止当前发送流程，返回监听状态")
+                            return False, True
+                        return False, False
                         
             except Exception as e:
                 if i < max_retries - 1:
@@ -774,8 +782,12 @@ def _load_config(self):
                     time.sleep(interval)
                 else:
                     print("    ✗ 验证异常：{}（已达最大重试次数）".format(e))
+                    if abort_on_fail:
+                        print("    → 中止当前发送流程，返回监听状态")
+                        return False, True
+                    return False, False
         
-        return False
+        return False, False
     
     def SendMessage(self, user, text, follow_first=True):
         """
@@ -785,6 +797,11 @@ def _load_config(self):
             user: 要搜索的用户名
             text: 要发送的消息内容
             follow_first: 是否先关注再发消息 (默认 True)
+        
+        Returns:
+            (success, should_listen): tuple
+                - success: bool - 发送是否成功
+                - should_listen: bool - 是否应该返回监听状态
         """
         self._ensure_foreground()
 
@@ -794,13 +811,16 @@ def _load_config(self):
         time.sleep(1.0)
 
         # 验证 1：搜索结果页面是否加载完成（识别"抖音号"）
-        if not self._wait_and_verify(
+        success, should_abort = self._wait_and_verify(
             verify_search_result,
             self.TakeScreenshot,
             "点击用户头像",
-            stage_name="搜索结果页面"
-        ):
-            print("警告：搜索结果页面验证未通过，继续执行...")
+            stage_name="搜索结果页面",
+            abort_on_fail=True
+        )
+        if should_abort:
+            print("搜索结果页面验证失败，返回监听状态")
+            return False, True
 
         # 2. 点击用户头像
         print("正在点击用户头像...")
@@ -808,13 +828,16 @@ def _load_config(self):
         time.sleep(1.0)
 
         # 验证 2：私信按钮是否可见（识别"私信"）
-        if not self._wait_and_verify(
+        success, should_abort = self._wait_and_verify(
             verify_private_message_button,
             self.TakeScreenshot,
             "点击私信",
-            stage_name="私信按钮"
-        ):
-            print("警告：私信按钮验证未通过，继续执行...")
+            stage_name="私信按钮",
+            abort_on_fail=True
+        )
+        if should_abort:
+            print("私信按钮验证失败，返回监听状态")
+            return False, True
 
         # 3. 如果需要关注，先点击关注
         if follow_first:
@@ -828,13 +851,16 @@ def _load_config(self):
         time.sleep(1.0)
 
         # 验证 3：消息输入框是否可用（识别"发送消息"）
-        if not self._wait_and_verify(
+        success, should_abort = self._wait_and_verify(
             verify_message_input,
             self.TakeScreenshot,
             "点击发送消息框",
-            stage_name="消息输入框"
-        ):
-            print("警告：消息输入框验证未通过，继续执行...")
+            stage_name="消息输入框",
+            abort_on_fail=True
+        )
+        if should_abort:
+            print("消息输入框验证失败，返回监听状态")
+            return False, True
 
         # 5. 点击发送消息框
         print("正在点击发送消息框...")
@@ -862,6 +888,7 @@ def _load_config(self):
         time.sleep(0.5)
 
         print("消息发送完成！")
+        return True, False
 
     # ==================== Screenshot ====================
 
