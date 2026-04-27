@@ -1,8 +1,28 @@
-pywin32
-Pillow
-opencv-python
-numpy
-PyMySQL>=1.0.0  # MySQL 数据库连接
+# Core dependencies
+pywin32==311
+Pillow==10.2.0
+opencv-python==4.11.0.86
+numpy==1.26.4
+PyMySQL==1.1.2
 
-# 可选
-cnocr  # 中文 OCR
+# OCR
+rapidocr==3.8.1
+cnocr==2.3.2.3
+
+# Deep Learning (optional, large packages)
+# torch==2.9.1
+# torchvision==0.24.1
+# onnxruntime==1.23.2
+
+# Utilities
+requests==2.32.5
+pyyaml==6.0.3
+tqdm==4.67.1
+schedule==1.2.2
+
+# Image processing
+scikit-image==0.25.2
+matplotlib==3.10.8
+
+# Optional (requires Tesseract-OCR installation)
+# pytesseract==0.3.13

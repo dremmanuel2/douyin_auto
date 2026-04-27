@@ -681,7 +681,7 @@ class Douyin:
             self._click_relative(0.50, 0.85)
         time.sleep(0.3)
 
-def _load_config(self):
+    def _load_config(self):
         """加载配置文件"""
         import json
         config_path = os.path.join(os.path.dirname(__file__), "..", "app", "config.json")

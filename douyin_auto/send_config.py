@@ -15,7 +15,7 @@ SEARCH_CONFIG = {
     # 点击搜索按钮后等待时间（秒）
     "click_search_delay": 3.0,
     # 点击用户头像后等待时间（秒）
-    "click_avatar_delay": 2.0,
+    "click_avatar_delay": 5.0,
     # 点击私信按钮后等待时间（秒）
     "click_message_btn_delay": 2.0,
     # 点击消息输入框后等待时间（秒）
