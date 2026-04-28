@@ -1,0 +1,9 @@
+2026-04-27 10:15:55,770 - UploadCommand - INFO - ==================================================
+2026-04-27 10:15:55,771 - UploadCommand - INFO - 启动抖音私信命令上传工具
+2026-04-27 10:15:55,771 - UploadCommand - INFO - ==================================================
+2026-04-27 10:15:55,861 - douyin_auto.db_utils - INFO - 数据库检查完成：DY_database
+2026-04-27 10:15:55,889 - douyin_auto.db_utils - INFO - 数据库连接成功：100.100.30.97:5455/DY_database
+2026-04-27 10:15:55,892 - douyin_auto.db_utils - INFO - 数据表 message_queue 检查完成
+2026-04-27 10:15:55,895 - douyin_auto.db_utils - INFO - 数据表 message_logs 检查完成
+2026-04-27 10:15:55,895 - UploadCommand - INFO - 数据库初始化成功
+2026-04-27 10:16:05,007 - UploadCommand - INFO - 程序退出

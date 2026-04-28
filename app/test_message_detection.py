@@ -133,7 +133,7 @@ def test_message_detection():
     # 激活窗口并固定大小
     print("\n[2] 激活窗口并固定大小...")
     try:
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
         time.sleep(0.2)
         win32gui.SetWindowPos(
             hwnd,

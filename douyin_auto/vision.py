@@ -1533,3 +1533,73 @@ def verify_message_input(image, target_text="发送消息"):
             return True, all_text
     
     return False, all_text
+
+
+def verify_private_message_input_box(image, target_text="发送消息"):
+    """
+    验证私信会话栏中的发送消息框是否可用
+    
+    Args:
+        image: 私信会话栏区域截图（BGR 格式）
+        target_text: 要识别的目标文字（默认"发送消息"）
+    
+    Returns:
+        verified: bool - 是否验证成功
+        ocr_text: str - OCR 识别到的文字
+    """
+    if image is None:
+        return False, ""
+    
+    # 扩展图片以提高 OCR 识别率
+    expanded = expand_image_for_ocr(image, target_size=200)
+    
+    # OCR 识别
+    results = recognize_text(expanded, lang="cn")
+    
+    if not results:
+        return False, ""
+    
+    # 检查是否包含目标文字
+    all_text = ""
+    for item in results:
+        text = item.get("text", "").strip()
+        all_text += text
+        if target_text in text:
+            return True, all_text
+    
+    return False, all_text
+
+
+def verify_user_homepage_private_button(image, target_text="私信"):
+    """
+    验证用户主页的私信按钮是否可见
+    
+    Args:
+        image: 用户主页私信按钮区域截图（BGR 格式）
+        target_text: 要识别的目标文字（默认"私信"）
+    
+    Returns:
+        verified: bool - 是否验证成功
+        ocr_text: str - OCR 识别到的文字
+    """
+    if image is None:
+        return False, ""
+    
+    # 扩展图片以提高 OCR 识别率
+    expanded = expand_image_for_ocr(image, target_size=200)
+    
+    # OCR 识别
+    results = recognize_text(expanded, lang="cn")
+    
+    if not results:
+        return False, ""
+    
+    # 检查是否包含目标文字
+    all_text = ""
+    for item in results:
+        text = item.get("text", "").strip()
+        all_text += text
+        if target_text in text:
+            return True, all_text
+    
+    return False, all_text

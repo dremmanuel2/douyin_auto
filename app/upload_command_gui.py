@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 抖音私信命令上传工具 - 图形界面版本
-用于将私信命令上传到 MySQL 数据库队列
+用于将私信命令发布到 RabbitMQ 队列
 """
 
 import tkinter as tk
@@ -13,8 +13,8 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from douyin_auto.db_utils import MySQLDBManager
-from douyin_auto.db_config import RATE_LIMIT_CONFIG, LOG_CONFIG
+from douyin_auto.mq_utils import RabbitMQManager
+from douyin_auto.mq_config import RATE_LIMIT_CONFIG, LOG_CONFIG
 import logging
 
 
@@ -56,24 +56,28 @@ class UploadCommandGUI:
         self.root.geometry("500x450")
         self.root.resizable(False, False)
 
-        self.db_manager = None
-        self._init_database()
+        self.mq_manager = None
+        self._init_mq()
 
         self._create_widgets()
         self._update_status()
 
-    def _init_database(self):
-        """初始化数据库连接"""
+    def _init_mq(self):
+        """初始化 RabbitMQ 连接"""
         try:
-            self.db_manager = MySQLDBManager()
-            if self.db_manager.initialize_database():
-                logger.info("数据库初始化成功")
+            self.mq_manager = RabbitMQManager()
+            if self.mq_manager.connect():
+                if self.mq_manager.initialize_queues():
+                    logger.info("RabbitMQ 初始化成功")
+                else:
+                    logger.error("RabbitMQ 队列初始化失败")
+                    messagebox.showerror("错误", "RabbitMQ 队列初始化失败，请检查配置")
             else:
-                logger.error("数据库初始化失败")
-                messagebox.showerror("错误", "数据库初始化失败，请检查配置")
+                logger.error("RabbitMQ 连接失败")
+                messagebox.showerror("错误", "RabbitMQ 连接失败，请检查配置")
         except Exception as e:
-            logger.error(f"数据库初始化异常：{e}")
-            messagebox.showerror("错误", f"数据库连接失败：{str(e)}")
+            logger.error(f"RabbitMQ 初始化异常：{e}")
+            messagebox.showerror("错误", f"RabbitMQ 连接失败：{str(e)}")
 
     def _create_widgets(self):
         """创建界面组件"""
@@ -206,13 +210,13 @@ class UploadCommandGUI:
         send_method = self.send_method_var.get()
 
         try:
-            if not self.db_manager or not self.db_manager.check_connection():
-                logger.error("数据库连接失效")
-                messagebox.showerror("错误", "数据库连接失效，请重启程序")
+            if not self.mq_manager or not self.mq_manager.check_connection():
+                logger.error("RabbitMQ 连接失效")
+                messagebox.showerror("错误", "RabbitMQ 连接失效，请重启程序")
                 return
 
             if send_method == "immediate":
-                today_count = self.db_manager.get_today_send_count()
+                today_count = self._get_today_count()
                 if today_count >= RATE_LIMIT_CONFIG["daily_limit"]:
                     messagebox.showwarning(
                         "警告",
@@ -222,18 +226,17 @@ class UploadCommandGUI:
                     logger.warning(f"达到今日发送上限：{today_count}")
                     return
 
-            message_id = self.db_manager.add_message(douyin_id, message)
+            success = self.mq_manager.publish_message(douyin_id, message)
 
-            if message_id:
-                logger.info(f"命令上传成功：ID={message_id}, 抖音 ID={douyin_id}")
+            if success:
+                logger.info(f"命令发布成功：抖音 ID={douyin_id}")
 
                 messagebox.showinfo(
                     "成功",
-                    f"✓ 命令已成功上传到数据库\n\n"
+                    f"✓ 命令已成功发布到 RabbitMQ\n\n"
                     f"抖音 ID: {douyin_id}\n"
                     f"消息内容：{message[:50]}{'...' if len(message) > 50 else ''}\n"
-                    f"队列 ID: {message_id}\n"
-                    f"上传时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    f"发布时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
                 )
 
                 self.douyin_id_var.set("")
@@ -241,8 +244,8 @@ class UploadCommandGUI:
 
                 self._update_status()
             else:
-                logger.error("命令上传失败")
-                messagebox.showerror("错误", "命令上传失败，请重试")
+                logger.error("命令发布失败")
+                messagebox.showerror("错误", "命令发布失败，请重试")
 
         except Exception as e:
             logger.error(f"上传命令异常：{e}")
@@ -250,15 +253,15 @@ class UploadCommandGUI:
 
     def _update_status(self):
         """更新状态显示"""
-        if not self.db_manager or not self.db_manager.check_connection():
-            self.status_label.config(text="状态：数据库未连接", foreground="red")
+        if not self.mq_manager or not self.mq_manager.check_connection():
+            self.status_label.config(text="状态：RabbitMQ 未连接", foreground="red")
             return
 
         self.status_label.config(text="状态：就绪", foreground="green")
 
         try:
-            today_count = self.db_manager.get_today_send_count()
-            queue_count = self.db_manager.get_queue_count()
+            today_count = self._get_today_count()
+            queue_count = self.mq_manager.get_queue_count()
 
             self.count_label.config(
                 text=f"今日已发送：{today_count}/{RATE_LIMIT_CONFIG['daily_limit']}"
@@ -275,10 +278,25 @@ class UploadCommandGUI:
         except Exception as e:
             logger.error(f"更新状态失败：{e}")
 
+    def _get_today_count(self):
+        """获取今日发送数量（从数据库日志表）"""
+        try:
+            from douyin_auto.db_utils import MySQLDBManager
+            from douyin_auto.db_config import MYSQL_DB_CONFIG
+            
+            db_manager = MySQLDBManager()
+            if db_manager.connect():
+                count = db_manager.get_today_send_count()
+                db_manager.disconnect()
+                return count
+        except Exception as e:
+            logger.debug(f"获取今日发送数量失败：{e}")
+        return 0
+
     def _close_window(self):
         """关闭窗口"""
-        if self.db_manager:
-            self.db_manager.disconnect()
+        if self.mq_manager:
+            self.mq_manager.disconnect()
         self.root.destroy()
 
 

@@ -68,7 +68,7 @@ def find_douyin_window():
 def activate_window(hwnd):
     """激活窗口"""
     try:
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
         time.sleep(0.1)
         win32gui.SetWindowPos(
             hwnd,

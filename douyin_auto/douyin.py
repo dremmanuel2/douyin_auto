@@ -40,6 +40,7 @@ from .vision import (
     verify_search_result,
     verify_private_message_button,
     verify_message_input,
+    verify_private_message_input_box,
 )
 
 # 导入用户校准的位置配置
@@ -104,8 +105,8 @@ class Douyin:
             self._update_window_size()
             self._smart_locator = SmartLocator(self._hwnd)
             self._capture_baseline()
-            # First show the window (restore if minimized)
-            win32gui.ShowWindow(self._hwnd, win32con.SW_RESTORE)
+            # Show window and bring to foreground
+            win32gui.ShowWindow(self._hwnd, win32con.SW_SHOW)
             time.sleep(0.1)
             # Then try to bring to foreground
             try:
@@ -165,7 +166,7 @@ class Douyin:
             )
 
         # 固定窗口大小和位置
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
         time.sleep(0.1)
         win32gui.SetWindowPos(
             hwnd, 0, x, y, w, h, win32con.SWP_NOZORDER | win32con.SWP_SHOWWINDOW
@@ -337,7 +338,7 @@ class Douyin:
         """
         w = width or self.DEFAULT_WIDTH
         h = height or self.DEFAULT_HEIGHT
-        win32gui.ShowWindow(self._hwnd, win32con.SW_RESTORE)
+        win32gui.ShowWindow(self._hwnd, win32con.SW_SHOW)
         time.sleep(0.1)
         win32gui.SetWindowPos(
             self._hwnd, 0, x, y, w, h, win32con.SWP_NOZORDER | win32con.SWP_SHOWWINDOW
@@ -662,13 +663,13 @@ class Douyin:
         time.sleep(0.5)
 
     def ClickPrivateMessage(self):
-        """点击个人资料页中的私信按钮"""
+        """点击头像内的私信按钮"""
         self._ensure_foreground()
-        if "点击私信" in POSITIONS:
-            x, y = POSITIONS["点击私信"]
+        if "点击头像内的私信" in POSITIONS:
+            x, y = POSITIONS["点击头像内的私信"]
             self._click_relative(x, y)
         else:
-            self._click_relative(0.50, 0.25)
+            self._click_relative(0.93, 0.19)
         time.sleep(0.5)
 
     def ClickMessageInput(self):
@@ -788,7 +789,120 @@ class Douyin:
                     return False, False
         
         return False, False
-    
+
+    def verify_and_click_message_input(self, max_retries=None, interval=None):
+        """
+        验证并点击消息输入框
+        
+        流程：
+        1. 优先在私信会话栏区域截图检测"发送消息"文字
+        2. 如果检测到，则点击发送消息框
+        3. 如果未检测到，重试多次后回退到默认检测方式
+        
+        Args:
+            max_retries: 最大重试次数
+            interval: 重试间隔（秒）
+        
+        Returns:
+            (success, should_abort): tuple
+        """
+        config = self._load_config()
+        if max_retries is None:
+            max_retries = config.get("validation_repeat", 5)
+        if interval is None:
+            interval = config.get("interval", 1.0)
+        
+        print("    正在验证消息输入框...")
+        
+        # 检查是否有私信会话栏区域配置
+        has_private_area = (
+            "私信会话栏中的发送消息框的左上" in POSITIONS and
+            "私信会话栏中的发送消息框的右下" in POSITIONS
+        )
+        
+        if has_private_area:
+            # 优先使用私信会话栏区域检测
+            x1_rel, y1_rel = POSITIONS["私信会话栏中的发送消息框的左上"]
+            x2_rel, y2_rel = POSITIONS["私信会话栏中的发送消息框的右下"]
+            
+            for i in range(max_retries):
+                try:
+                    left, top, right, bottom = GetWindowRect(self._hwnd)
+                    width = right - left
+                    height = bottom - top
+                    
+                    # 计算私信会话栏区域
+                    x1 = int(left + x1_rel * width)
+                    y1 = int(top + y1_rel * height)
+                    x2 = int(left + x2_rel * width)
+                    y2 = int(top + y2_rel * height)
+                    
+                    # 截图
+                    from PIL import ImageGrab
+                    import numpy as np
+                    import cv2
+                    
+                    img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+                    img_np = np.array(img)
+                    if len(img_np.shape) == 3 and img_np.shape[2] == 4:
+                        img_np = img_np[:, :, :3]
+                    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                    
+                    # OCR 验证
+                    success, ocr_text = verify_private_message_input_box(img_bgr)
+                    
+                    if success:
+                        print("    ✓ 私信会话栏验证成功，识别到：{}".format(ocr_text))
+                        
+                        # 点击发送消息框
+                        if "点击发送消息框" in POSITIONS:
+                            click_x, click_y = POSITIONS["点击发送消息框"]
+                            abs_x = int(left + click_x * width)
+                            abs_y = int(top + click_y * height)
+                            print("    点击发送消息框：({}, {})".format(abs_x, abs_y))
+                            self.Click(abs_x, abs_y)
+                            time.sleep(0.5)
+                            return True, False
+                        else:
+                            print("    缺少位置配置：点击发送消息框")
+                            return False, True
+                    else:
+                        if i < max_retries - 1:
+                            print("    第{}次验证未通过（识别：{}），{}秒后重试...".format(
+                                i + 1, ocr_text if ocr_text else "无文字", interval))
+                            time.sleep(interval)
+                        else:
+                            print("    ✗ 私信会话栏验证失败（已达最大重试次数{}次）".format(max_retries))
+                            break
+                            
+                except Exception as e:
+                    if i < max_retries - 1:
+                        print("    验证异常：{}，{}秒后重试...".format(e, interval))
+                        time.sleep(interval)
+                    else:
+                        print("    ✗ 验证异常：{}（已达最大重试次数）".format(e))
+                        break
+        
+        # 回退到默认检测方式
+        print("    回退到默认消息输入框检测方式...")
+        success, should_abort = self._wait_and_verify(
+            verify_message_input,
+            self.TakeScreenshot,
+            "点击发送消息框",
+            max_retries=max_retries,
+            interval=interval,
+            stage_name="消息输入框",
+            abort_on_fail=False
+        )
+        
+        if success:
+            # 点击发送消息框
+            self.ClickMessageInput()
+            time.sleep(0.5)
+            return True, False
+        
+        return False, False
+
     def SendMessage(self, user, text, follow_first=True):
         """
         搜索用户并发送私信的完整流程
@@ -851,21 +965,16 @@ class Douyin:
         time.sleep(1.0)
 
         # 验证 3：消息输入框是否可用（识别"发送消息"）
-        success, should_abort = self._wait_and_verify(
-            verify_message_input,
-            self.TakeScreenshot,
-            "点击发送消息框",
-            stage_name="消息输入框",
-            abort_on_fail=True
-        )
+        print("验证 3: 检测消息输入框")
+        success, should_abort = self.verify_and_click_message_input()
         if should_abort:
             print("消息输入框验证失败，返回监听状态")
             return False, True
+        if not success:
+            print("消息输入框验证失败，返回监听状态")
+            return False, True
 
-        # 5. 点击发送消息框
-        print("正在点击发送消息框...")
-        self.ClickMessageInput()
-        time.sleep(0.5)
+        # 5. 消息输入框已点击
 
         # 6. 输入消息内容
         print("正在输入消息：{}".format(text))

@@ -1,0 +1,28 @@
+2026-04-22 10:24:32,736 - UploadCommand - INFO - ==================================================
+2026-04-22 10:24:32,736 - UploadCommand - INFO - 启动抖音私信命令上传工具
+2026-04-22 10:24:32,737 - UploadCommand - INFO - ==================================================
+2026-04-22 10:24:32,888 - douyin_auto.db_utils - INFO - 数据库检查完成：DY_database
+2026-04-22 10:24:32,909 - douyin_auto.db_utils - INFO - 数据库连接成功：100.100.30.97:5455/DY_database
+2026-04-22 10:24:32,916 - douyin_auto.db_utils - INFO - 数据表 message_queue 检查完成
+2026-04-22 10:24:32,918 - douyin_auto.db_utils - INFO - 数据表 message_logs 检查完成
+2026-04-22 10:24:32,918 - UploadCommand - INFO - 数据库初始化成功
+2026-04-22 10:24:59,513 - UploadCommand - INFO - ==================================================
+2026-04-22 10:24:59,514 - UploadCommand - INFO - 启动抖音私信命令上传工具
+2026-04-22 10:24:59,514 - UploadCommand - INFO - ==================================================
+2026-04-22 10:24:59,578 - douyin_auto.db_utils - INFO - 数据库检查完成：DY_database
+2026-04-22 10:24:59,581 - douyin_auto.db_utils - INFO - 数据库连接成功：100.100.30.97:5455/DY_database
+2026-04-22 10:24:59,584 - douyin_auto.db_utils - INFO - 数据表 message_queue 检查完成
+2026-04-22 10:24:59,588 - douyin_auto.db_utils - INFO - 数据表 message_logs 检查完成
+2026-04-22 10:24:59,588 - UploadCommand - INFO - 数据库初始化成功
+2026-04-22 10:25:22,574 - UploadCommand - INFO - 命令上传成功：ID=1, 抖音 ID=86759655452
+2026-04-22 10:25:51,792 - UploadCommand - INFO - 程序退出
+2026-04-22 16:50:47,627 - UploadCommand - INFO - ==================================================
+2026-04-22 16:50:47,628 - UploadCommand - INFO - 启动抖音私信命令上传工具
+2026-04-22 16:50:47,628 - UploadCommand - INFO - ==================================================
+2026-04-22 16:50:47,700 - douyin_auto.db_utils - INFO - 数据库检查完成：DY_database
+2026-04-22 16:50:47,703 - douyin_auto.db_utils - INFO - 数据库连接成功：100.100.30.97:5455/DY_database
+2026-04-22 16:50:47,705 - douyin_auto.db_utils - INFO - 数据表 message_queue 检查完成
+2026-04-22 16:50:47,715 - douyin_auto.db_utils - INFO - 数据表 message_logs 检查完成
+2026-04-22 16:50:47,715 - UploadCommand - INFO - 数据库初始化成功
+2026-04-22 16:51:07,945 - UploadCommand - INFO - 命令上传成功：ID=2, 抖音 ID=86759655452
+2026-04-22 17:10:26,755 - UploadCommand - INFO - 程序退出

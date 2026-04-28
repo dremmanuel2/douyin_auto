@@ -40,7 +40,8 @@ def SetForegroundWindow(hwnd):
     """Bring window to foreground"""
     if hwnd:
         try:
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            # Use SW_SHOW instead of SW_RESTORE to avoid window minimizing issues
+            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
         except:
             pass
         try:

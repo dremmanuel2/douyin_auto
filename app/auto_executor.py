@@ -20,8 +20,8 @@ from typing import Dict, List, Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from douyin_auto.db_utils import MySQLDBManager
-from douyin_auto.db_config import (
-    MYSQL_DB_CONFIG,
+from douyin_auto.mq_utils import RabbitMQManager
+from douyin_auto.mq_config import (
     RATE_LIMIT_CONFIG,
     RETRY_CONFIG,
     LISTEN_CONFIG,
@@ -34,6 +34,8 @@ from douyin_auto.vision import (
     verify_search_result,
     verify_private_message_button,
     verify_message_input,
+    verify_private_message_input_box,
+    verify_user_homepage_private_button,
 )
 import win32gui
 import win32con
@@ -355,6 +357,7 @@ class AutoExecutor:
     def __init__(self):
         """初始化自动化执行器"""
         self.db_manager: Optional[MySQLDBManager] = None
+        self.mq_manager: Optional[RabbitMQManager] = None
         self.douyin: Optional[Douyin] = None
         self.hwnd = None
         self.last_send_time: float = 0
@@ -363,7 +366,7 @@ class AutoExecutor:
 
     def initialize(self) -> bool:
         """
-        初始化数据库和抖音窗口
+        初始化数据库、RabbitMQ 和抖音窗口
 
         Returns:
             bool: 初始化是否成功
@@ -374,15 +377,25 @@ class AutoExecutor:
 
         try:
             self.db_manager = MySQLDBManager()
-            if not self.db_manager.initialize_database():
-                logger.error("数据库初始化失败")
+            if not self.db_manager.connect():
+                logger.error("数据库连接失败")
                 return False
-            logger.info("数据库初始化成功")
+            logger.info("数据库连接成功")
 
             self.today_send_count = self.db_manager.get_today_send_count()
             logger.info(
                 f"今日已发送：{self.today_send_count}/{RATE_LIMIT_CONFIG['daily_limit']}"
             )
+
+            self.mq_manager = RabbitMQManager()
+            if not self.mq_manager.connect():
+                logger.error("RabbitMQ 连接失败")
+                return False
+            
+            if not self.mq_manager.initialize_queues():
+                logger.error("RabbitMQ 队列初始化失败")
+                return False
+            logger.info("RabbitMQ 初始化成功")
 
             try:
                 self.douyin = Douyin.open()
@@ -403,6 +416,8 @@ class AutoExecutor:
         logger.info("清理资源...")
         if self.db_manager:
             self.db_manager.disconnect()
+        if self.mq_manager:
+            self.mq_manager.disconnect()
         self.running = False
 
     def recognize_messages(self, expected_count=10):
@@ -466,6 +481,10 @@ class AutoExecutor:
         
         for i in range(max_retries):
             try:
+                # 确保窗口在前台
+                self.douyin._ensure_foreground()
+                time.sleep(0.3)
+                
                 if position_key not in POSITIONS:
                     logger.warning("    缺少位置配置 {}".format(position_key))
                     time.sleep(interval)
@@ -523,6 +542,215 @@ class AutoExecutor:
                     return False, False
         
         return False, False
+
+    def verify_and_click_message_input(self, max_retries=None, interval=None) -> bool:
+        """
+        验证并点击消息输入框
+        
+        流程：
+        1. 优先在私信会话栏区域截图检测"发送消息"文字
+        2. 如果检测到，则点击发送消息框
+        3. 如果未检测到，重试多次后回退到默认检测方式
+        
+        Args:
+            max_retries: 最大重试次数
+            interval: 重试间隔（秒）
+        
+        Returns:
+            bool: 验证是否成功
+        """
+        config = load_config()
+        if max_retries is None:
+            max_retries = config.get("validation_repeat", 5)
+        if interval is None:
+            interval = config.get("interval", 1.0)
+        
+        logger.debug("    正在验证消息输入框...")
+        
+        # 检查是否有私信会话栏区域配置
+        has_private_area = (
+            "私信会话栏中的发送消息框的左上" in POSITIONS and
+            "私信会话栏中的发送消息框的右下" in POSITIONS
+        )
+        
+        if has_private_area:
+            # 优先使用私信会话栏区域检测
+            x1_rel, y1_rel = POSITIONS["私信会话栏中的发送消息框的左上"]
+            x2_rel, y2_rel = POSITIONS["私信会话栏中的发送消息框的右下"]
+            
+            for i in range(max_retries):
+                try:
+                    # 确保窗口在前台
+                    self.douyin._ensure_foreground()
+                    time.sleep(0.3)
+                    
+                    left, top, right, bottom = win32gui.GetWindowRect(self.hwnd)
+                    width = right - left
+                    height = bottom - top
+                    
+                    # 计算私信会话栏区域
+                    x1 = int(left + x1_rel * width)
+                    y1 = int(top + y1_rel * height)
+                    x2 = int(left + x2_rel * width)
+                    y2 = int(top + y2_rel * height)
+                    
+                    # 截图
+                    img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+                    img_np = np.array(img)
+                    if len(img_np.shape) == 3 and img_np.shape[2] == 4:
+                        img_np = img_np[:, :, :3]
+                    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                    
+                    # OCR 验证
+                    success, ocr_text = verify_private_message_input_box(img_bgr)
+                    
+                    if success:
+                        logger.info("    ✓ 私信会话栏验证成功，识别到：{}".format(ocr_text))
+                        
+                        # 点击发送消息框
+                        if "点击发送消息框" in POSITIONS:
+                            click_x, click_y = POSITIONS["点击发送消息框"]
+                            logger.debug("    点击发送消息框：相对坐标 ({}, {})".format(click_x, click_y))
+                            self.douyin.Click(click_x, click_y)
+                            time.sleep(1.0)
+                            return True
+                        else:
+                            logger.error("    缺少位置配置：点击发送消息框")
+                            return False
+                    else:
+                        if i < max_retries - 1:
+                            logger.debug("    第{}次验证未通过（识别：{}），{}秒后重试...".format(
+                                i + 1, ocr_text if ocr_text else "无文字", interval))
+                            time.sleep(interval)
+                        else:
+                            logger.warning("    ✗ 私信会话栏验证失败（已达最大重试次数{}次）".format(max_retries))
+                            break
+                            
+                except Exception as e:
+                    if i < max_retries - 1:
+                        logger.debug("    验证异常：{}，{}秒后重试...".format(e, interval))
+                        time.sleep(interval)
+                    else:
+                        logger.error("    ✗ 验证异常：{}（已达最大重试次数）".format(e))
+                        break
+        
+        # 回退到默认检测方式
+        logger.debug("    回退到默认消息输入框检测方式...")
+        success, should_abort = self._wait_and_verify(
+            verify_message_input,
+            "点击发送消息框",
+            "消息输入框",
+            max_retries=max_retries,
+            interval=interval,
+            abort_on_fail=False
+        )
+        
+        if success:
+            # 点击发送消息框
+            if "点击发送消息框" in POSITIONS:
+                click_x, click_y = POSITIONS["点击发送消息框"]
+                self.douyin.Click(click_x, click_y)
+                time.sleep(1.0)
+                return True
+        
+        return False
+
+    def verify_and_click_user_homepage_private_button(
+        self, max_retries=None, interval=None
+    ) -> bool:
+        """
+        验证并点击用户主页的私信按钮
+        
+        流程：
+        1. 在用户主页的私信按钮区域截图检测"私信"文字
+        2. 如果检测到，则点击私信按钮
+        3. 如果未检测到，重试多次后返回失败
+        
+        Args:
+            max_retries: 最大重试次数
+            interval: 重试间隔（秒）
+        
+        Returns:
+            bool: 验证是否成功
+        """
+        config = load_config()
+        if max_retries is None:
+            max_retries = config.get("validation_repeat", 5)
+        if interval is None:
+            interval = config.get("interval", 1.0)
+        
+        logger.debug("    正在验证用户主页私信按钮...")
+        
+        # 检查是否有用户主页私信按钮区域配置
+        has_private_button_area = (
+            "进入用户主页的私信按钮左上" in POSITIONS and
+            "进入用户主页的私信按钮右下" in POSITIONS
+        )
+        
+        if not has_private_button_area:
+            logger.error("    缺少位置配置：进入用户主页的私信按钮区域")
+            return False
+        
+        x1_rel, y1_rel = POSITIONS["进入用户主页的私信按钮左上"]
+        x2_rel, y2_rel = POSITIONS["进入用户主页的私信按钮右下"]
+        
+        for i in range(max_retries):
+            try:
+                # 确保窗口在前台
+                self.douyin._ensure_foreground()
+                time.sleep(0.3)
+                
+                left, top, right, bottom = win32gui.GetWindowRect(self.hwnd)
+                width = right - left
+                height = bottom - top
+                
+                # 计算用户主页私信按钮区域
+                x1 = int(left + x1_rel * width)
+                y1 = int(top + y1_rel * height)
+                x2 = int(left + x2_rel * width)
+                y2 = int(top + y2_rel * height)
+                
+                # 截图
+                img = ImageGrab.grab(bbox=(x1, y1, x2, y2))
+                img_np = np.array(img)
+                if len(img_np.shape) == 3 and img_np.shape[2] == 4:
+                    img_np = img_np[:, :, :3]
+                img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                
+                # OCR 验证
+                success, ocr_text = verify_user_homepage_private_button(img_bgr)
+                
+                if success:
+                    logger.info("    ✓ 用户主页私信按钮验证成功，识别到：{}".format(ocr_text))
+                    
+                    # 点击私信按钮
+                    if "点击头像内的私信" in POSITIONS:
+                        click_x, click_y = POSITIONS["点击头像内的私信"]
+                        logger.debug("    点击私信按钮：相对坐标 ({}, {})".format(click_x, click_y))
+                        self.douyin.Click(click_x, click_y)
+                        time.sleep(1.0)
+                        return True
+                    else:
+                        logger.error("    缺少位置配置：点击头像内的私信")
+                        return False
+                else:
+                    if i < max_retries - 1:
+                        logger.debug("    第{}次验证未通过（识别：{}），{}秒后重试...".format(
+                            i + 1, ocr_text if ocr_text else "无文字", interval))
+                        time.sleep(interval)
+                    else:
+                        logger.warning("    ✗ 用户主页私信按钮验证失败（已达最大重试次数{}次）".format(max_retries))
+                        break
+                        
+            except Exception as e:
+                if i < max_retries - 1:
+                    logger.debug("    验证异常：{}，{}秒后重试...".format(e, interval))
+                    time.sleep(interval)
+                else:
+                    logger.error("    ✗ 验证异常：{}（已达最大重试次数）".format(e))
+                    break
+        
+        return False
 
     def check_rate_limit(self) -> bool:
         """
@@ -630,48 +858,27 @@ class AutoExecutor:
             self.douyin.Click(*POSITIONS["点击用户头像"])
             time.sleep(2.0)
 
-            # 验证 2：私信按钮（识别"私信"）
-            logger.debug("验证 2: 检测私信按钮")
-            success, should_abort = self._wait_and_verify(
-                verify_private_message_button,
-                "点击私信",
-                "私信按钮",
-                abort_on_fail=True
-            )
-            if should_abort:
-                logger.warning("私信按钮验证失败，返回监听状态")
+            # 确保窗口在前台
+            self.douyin._ensure_foreground()
+            time.sleep(0.5)
+
+            # 验证 2：用户主页私信按钮（识别"私信"）并点击
+            logger.debug("验证 2: 检测用户主页私信按钮")
+            success = self.verify_and_click_user_homepage_private_button()
+            if not success:
+                logger.warning("用户主页私信按钮验证失败，返回监听状态")
                 return False
 
-            if "点击头像内的私信" in POSITIONS:
-                logger.debug("步骤 6: 点击私信按钮")
-                self.douyin.Click(*POSITIONS["点击头像内的私信"])
-            elif "点击私信" in POSITIONS:
-                logger.debug("步骤 6: 点击私信按钮")
-                self.douyin.Click(*POSITIONS["点击私信"])
-            else:
-                logger.error("缺少必要点位：点击私信")
-                return False
             time.sleep(2.0)
 
             # 验证 3：消息输入框（识别"发送消息"）
             logger.debug("验证 3: 检测消息输入框")
-            success, should_abort = self._wait_and_verify(
-                verify_message_input,
-                "点击发送消息框",
-                "消息输入框",
-                abort_on_fail=True
-            )
-            if should_abort:
+            success = self.verify_and_click_message_input()
+            if not success:
                 logger.warning("消息输入框验证失败，返回监听状态")
                 return False
 
-            if "点击发送消息框" not in POSITIONS:
-                logger.error("缺少必要点位：点击发送消息框")
-                return False
-
-            logger.debug("步骤 7: 点击消息输入框")
-            self.douyin.Click(*POSITIONS["点击发送消息框"])
-            time.sleep(1.0)
+            logger.debug("步骤 7: 消息输入框已点击")
 
             logger.debug(f"步骤 8: 输入消息：{message[:20]}...")
             SetClipboardText(message)
@@ -700,65 +907,72 @@ class AutoExecutor:
             logger.error(f"发送消息失败：{e}")
             return False
 
-    def execute_with_retry(self, msg: Dict) -> bool:
+    def execute_with_retry(self, msg: Dict, delivery_tag=None) -> bool:
         """
         带重试机制的执行消息发送
 
         Args:
-            msg: 消息字典，包含 douyin_id, message, id 等字段
+            msg: 消息字典，包含 douyin_id, message 等字段
+            delivery_tag: RabbitMQ 消息交付标签（可选）
 
         Returns:
             bool: 执行是否成功
         """
         max_retries = RETRY_CONFIG["max_retries"]
-        retry_interval = RETRY_CONFIG["retry_interval"]
-        retry_count = 0
+        retry_interval = RETRY_CONFIG["retry_delay"]
+        retry_count = msg.get("retry_count", 0)
 
-        while retry_count < max_retries:
-            try:
-                success = self.send_message(msg["douyin_id"], msg["message"])
+        try:
+            success = self.send_message(msg["douyin_id"], msg["message"])
 
-                if success:
-                    self.db_manager.log_message(
-                        douyin_id=msg["douyin_id"],
-                        message=msg["message"],
-                        send_status=1,
-                        retry_count=retry_count,
-                    )
-                    self.db_manager.delete_message(msg["id"])
-
-                    self.today_send_count += 1
-                    self.last_send_time = time.time()
-
-                    logger.info(
-                        f"消息执行成功 (重试{retry_count}次): {msg['douyin_id']}"
-                    )
-                    return True
-                else:
-                    raise Exception("发送失败")
-
-            except Exception as e:
-                retry_count += 1
-                logger.warning(
-                    f"发送失败，重试第 {retry_count}/{max_retries} 次: "
-                    f"{msg['douyin_id']}, 错误：{e}"
+            if success:
+                self.db_manager.log_message(
+                    douyin_id=msg["douyin_id"],
+                    message=msg["message"],
+                    send_status=1,
+                    retry_count=retry_count,
                 )
 
-                if retry_count < max_retries:
-                    self.db_manager.update_retry_count(msg["id"], retry_count)
-                    time.sleep(retry_interval)
+                self.today_send_count += 1
+                self.last_send_time = time.time()
 
-        self.db_manager.log_message(
-            douyin_id=msg["douyin_id"],
-            message=msg["message"],
-            send_status=0,
-            retry_count=retry_count,
-            error_message=f"重试{retry_count}次失败",
-        )
+                logger.info(
+                    f"消息执行成功 (重试{retry_count}次): {msg['douyin_id']}"
+                )
+                
+                if delivery_tag is not None and self.mq_manager:
+                    self.mq_manager.ack_message(delivery_tag)
+                
+                return True
+            else:
+                raise Exception("发送失败")
 
-        self.db_manager.delete_message(msg["id"])
-        logger.error(f"消息执行失败 (已达最大重试次数): {msg['douyin_id']}")
-        return False
+        except Exception as e:
+            retry_count += 1
+            logger.warning(
+                f"发送失败，重试第 {retry_count}/{max_retries} 次： "
+                f"{msg['douyin_id']}, 错误：{e}"
+            )
+
+            if retry_count < max_retries:
+                if delivery_tag is not None and self.mq_manager:
+                    self.mq_manager.retry_message(msg, delivery_tag)
+                time.sleep(retry_interval)
+                return False
+            else:
+                self.db_manager.log_message(
+                    douyin_id=msg["douyin_id"],
+                    message=msg["message"],
+                    send_status=0,
+                    retry_count=retry_count,
+                    error_message=f"重试{retry_count}次失败",
+                )
+                
+                if delivery_tag is not None and self.mq_manager:
+                    self.mq_manager.ack_message(delivery_tag)
+                
+                logger.error(f"消息执行失败 (已达最大重试次数): {msg['douyin_id']}")
+                return False
 
     def listen_and_respond(self):
         """
@@ -906,38 +1120,37 @@ class AutoExecutor:
 
                     time.sleep(2)
 
-                    # 2. 查询数据库待执行消息
-                    logger.debug("步骤 2: 查询数据库待执行消息")
-                    pending_messages = self.db_manager.get_pending_messages()
-
-                    if pending_messages:
-                        logger.info(f"查询到 {len(pending_messages)} 条待执行消息")
-
-                        for msg in pending_messages:
-                            if not self.running:
-                                break
-
-                            if (
-                                self.today_send_count
-                                >= RATE_LIMIT_CONFIG["daily_limit"]
-                            ):
-                                logger.warning("已达到今日发送上限")
-                                break
-
-                            if not self.check_rate_limit():
-                                break
-
-                            logger.info(f"准备执行消息：{msg['douyin_id']}")
+                    # 2. 从 RabbitMQ 消费待执行消息
+                    logger.debug("步骤 2: 从 RabbitMQ 消费待执行消息")
+                    
+                    if not self.check_rate_limit():
+                        time.sleep(check_interval)
+                        continue
+                    
+                    msg = self.mq_manager.consume_one(auto_ack=False)
+                    
+                    if msg:
+                        logger.info(f"从队列获取到消息：{msg['douyin_id']}")
+                        
+                        if (
+                            self.today_send_count
+                            >= RATE_LIMIT_CONFIG["daily_limit"]
+                        ):
+                            logger.warning("已达到今日发送上限，消息将保留在队列中")
+                            if self.mq_manager:
+                                self.mq_manager.nack_message(
+                                    msg.get('_delivery_tag', 0),
+                                    requeue=False
+                                )
+                        else:
                             success = self.execute_with_retry(msg)
-
+                            
                             if not success:
                                 logger.warning("消息执行失败，等待下一轮")
-                                break
-
-                        time.sleep(check_interval)
                     else:
                         logger.debug("没有待执行消息，继续监听")
-                        time.sleep(check_interval)
+                    
+                    time.sleep(check_interval)
 
                 except KeyboardInterrupt:
                     logger.info("收到停止信号")
